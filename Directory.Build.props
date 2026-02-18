@@ -1,0 +1,20 @@
+<Project>
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- NuGet package metadata (applied to packable projects) -->
+  <PropertyGroup>
+    <Authors>DJGosnell</Authors>
+    <Copyright>Copyright (c) DJGosnell</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Dtronix/Logsmith</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Dtronix/Logsmith</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>logging;source-generator;zero-allocation;structured-logging;dotnet</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+</Project>
