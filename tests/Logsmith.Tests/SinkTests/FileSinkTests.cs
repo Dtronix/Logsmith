@@ -123,15 +123,22 @@ public class FileSinkTests
     }
 
     [Test]
-    public void NonSharedMode_DefaultBehavior_Unchanged()
+    public async Task NonSharedMode_MultipleWriters_BothSucceed()
     {
         var path = Path.Combine(_tempDir, "nonshared.log");
-        using var sink = new FileSink(path, shared: false, formatter: NullLogFormatter.Instance);
-        // Second sink on same file with non-shared mode should throw
-        Assert.Throws<IOException>(() =>
-        {
-            using var sink2 = new FileSink(path, shared: false, formatter: NullLogFormatter.Instance);
-        });
+        var sink1 = new FileSink(path, shared: false, formatter: NullLogFormatter.Instance);
+        var sink2 = new FileSink(path, shared: false, formatter: NullLogFormatter.Instance);
+        var entry = MakeEntry();
+
+        sink1.Write(in entry, "from-writer1"u8);
+        await Task.Delay(100);
+        sink2.Write(in entry, "from-writer2"u8);
+        await sink1.DisposeAsync();
+        await sink2.DisposeAsync();
+
+        var content = await File.ReadAllTextAsync(path);
+        Assert.That(content, Does.Contain("from-writer1"));
+        Assert.That(content, Does.Contain("from-writer2"));
     }
 
     [Test]
