@@ -198,6 +198,27 @@ public class CodeEmissionTests
         Assert.That(generated, Does.Contain("is not null"));
     }
 
+    [Test]
+    public void ThreadInfo_EmittedInLogEntry()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Hello")]
+                static partial void Greet();
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        Assert.That(generated, Does.Contain("threadId: global::System.Environment.CurrentManagedThreadId"));
+        Assert.That(generated, Does.Contain("threadName: global::System.Threading.Thread.CurrentThread.Name"));
+    }
+
     private static string GetGeneratedSource(GeneratorRunResult result, string hintPrefix)
     {
         var source = result.GeneratedSources

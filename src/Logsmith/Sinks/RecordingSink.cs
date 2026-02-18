@@ -13,6 +13,8 @@ public class RecordingSink : ILogSink
         string? CallerFile,
         int CallerLine,
         string? CallerMember,
+        int ThreadId,
+        string? ThreadName,
         string Message);
 
     private readonly LogLevel _minimumLevel;
@@ -38,6 +40,8 @@ public class RecordingSink : ILogSink
             entry.CallerFile,
             entry.CallerLine,
             entry.CallerMember,
+            entry.ThreadId,
+            entry.ThreadName,
             message));
     }
 

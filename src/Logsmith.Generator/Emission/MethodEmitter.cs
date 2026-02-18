@@ -181,7 +181,9 @@ internal static class MethodEmitter
         sb.AppendLine($"            exception: {exceptionExpr},");
         sb.AppendLine($"            callerFile: {callerFileExpr},");
         sb.AppendLine($"            callerLine: {callerLineExpr},");
-        sb.AppendLine($"            callerMember: {callerMemberExpr});");
+        sb.AppendLine($"            callerMember: {callerMemberExpr},");
+        sb.AppendLine("            threadId: global::System.Environment.CurrentManagedThreadId,");
+        sb.AppendLine("            threadName: global::System.Threading.Thread.CurrentThread.Name);");
 
         return sb.ToString();
     }

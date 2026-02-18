@@ -94,6 +94,25 @@ public class RecordingSinkTests
         Assert.That(captured.Message, Is.EqualTo("msg"));
     }
 
+    [Test]
+    public void CapturedEntry_IncludesThreadInfo()
+    {
+        using var sink = new RecordingSink();
+        var entry = new LogEntry(
+            level: LogLevel.Information,
+            eventId: 1,
+            timestampTicks: DateTime.UtcNow.Ticks,
+            category: "Test",
+            threadId: 42,
+            threadName: "WorkerThread");
+
+        sink.Write(in entry, "msg"u8);
+
+        var captured = sink.Entries[0];
+        Assert.That(captured.ThreadId, Is.EqualTo(42));
+        Assert.That(captured.ThreadName, Is.EqualTo("WorkerThread"));
+    }
+
     private static LogEntry MakeEntry() => new(
         LogLevel.Information, 1, DateTime.UtcNow.Ticks, "Test");
 }

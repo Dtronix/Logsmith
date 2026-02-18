@@ -13,6 +13,8 @@ public abstract class BufferedLogSink : ILogSink, IAsyncDisposable
         string? CallerFile,
         int CallerLine,
         string? CallerMember,
+        int ThreadId,
+        string? ThreadName,
         byte[] Utf8Message);
 
     protected LogLevel MinimumLevel { get; }
@@ -47,6 +49,8 @@ public abstract class BufferedLogSink : ILogSink, IAsyncDisposable
             entry.CallerFile,
             entry.CallerLine,
             entry.CallerMember,
+            entry.ThreadId,
+            entry.ThreadName,
             messageCopy);
 
         _channel.Writer.TryWrite(buffered);
