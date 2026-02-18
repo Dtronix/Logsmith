@@ -10,6 +10,7 @@ public class FileSink : BufferedLogSink
     private readonly ILogFormatter _formatter;
     private readonly bool _shared;
     private readonly RollingInterval _rollingInterval;
+    private readonly Mutex? _fileMutex;
     private FileStream? _fileStream;
     private long _currentSize;
     private DateTime _currentPeriodStart;
@@ -27,10 +28,14 @@ public class FileSink : BufferedLogSink
         _shared = shared;
         _rollingInterval = rollingInterval;
         _currentPeriodStart = GetPeriodStart(DateTime.UtcNow, _rollingInterval);
+
+        if (_shared)
+            _fileMutex = new Mutex(false, $"Logsmith_{ComputePathHash(_basePath)}");
+
         EnsureFileOpen();
     }
 
-    protected override async Task WriteBufferedAsync(BufferedEntry entry, CancellationToken ct)
+    protected override Task WriteBufferedAsync(BufferedEntry entry, CancellationToken ct)
     {
         if (_fileStream is null)
             EnsureFileOpen();
@@ -50,7 +55,67 @@ public class FileSink : BufferedLogSink
 
         var totalBytes = prefixBytes.Length + entry.Utf8Message.Length + suffixBytes.Length;
 
-        // Time-based roll check (before size check)
+        if (_shared)
+        {
+            WriteSharedLocked(entry, prefixBytes, suffixBytes, totalBytes);
+            return Task.CompletedTask;
+        }
+
+        return WriteNonSharedAsync(entry, prefixBytes, suffixBytes, totalBytes, ct);
+    }
+
+    /// <summary>
+    /// Shared mode: acquire named mutex, seek-to-end, write synchronously, release.
+    /// Synchronous I/O is required because Mutex is thread-affine — async continuations
+    /// may resume on a different thread, causing ReleaseMutex to throw.
+    /// This runs on the dedicated drain thread so blocking is acceptable.
+    /// </summary>
+    private void WriteSharedLocked(BufferedEntry entry, ReadOnlyMemory<byte> prefixBytes,
+        ReadOnlyMemory<byte> suffixBytes, int totalBytes)
+    {
+        AcquireFileMutex();
+        try
+        {
+            // Seek to true end — other processes may have written since our last write
+            _fileStream!.Seek(0, SeekOrigin.End);
+            _currentSize = _fileStream.Position;
+
+            // Time-based roll check
+            if (_rollingInterval != RollingInterval.None)
+            {
+                var entryTime = new DateTime(entry.TimestampTicks, DateTimeKind.Utc);
+                var entryPeriod = GetPeriodStart(entryTime, _rollingInterval);
+                if (entryPeriod > _currentPeriodStart)
+                {
+                    RollFileSync(GetTimeRolledName(entryPeriod));
+                    _currentPeriodStart = entryPeriod;
+                    _sizeRollCount = 0;
+                }
+            }
+
+            // Size-based roll check
+            if (_currentSize + totalBytes > _maxFileSizeBytes && _currentSize > 0)
+            {
+                _sizeRollCount++;
+                RollFileSync(GetSizeRolledName());
+            }
+
+            _fileStream!.Write(prefixBytes.Span);
+            _fileStream.Write(entry.Utf8Message);
+            _fileStream.Write(suffixBytes.Span);
+            _fileStream.Flush();
+            _currentSize += totalBytes;
+        }
+        finally
+        {
+            _fileMutex!.ReleaseMutex();
+        }
+    }
+
+    private async Task WriteNonSharedAsync(BufferedEntry entry, ReadOnlyMemory<byte> prefixBytes,
+        ReadOnlyMemory<byte> suffixBytes, int totalBytes, CancellationToken ct)
+    {
+        // Time-based roll check
         if (_rollingInterval != RollingInterval.None)
         {
             var entryTime = new DateTime(entry.TimestampTicks, DateTimeKind.Utc);
@@ -61,13 +126,6 @@ public class FileSink : BufferedLogSink
                 _currentPeriodStart = entryPeriod;
                 _sizeRollCount = 0;
             }
-        }
-
-        // In shared mode, seek to end to account for external writes
-        if (_shared)
-        {
-            _fileStream!.Seek(0, SeekOrigin.End);
-            _currentSize = _fileStream.Position;
         }
 
         // Size-based roll check
@@ -82,6 +140,18 @@ public class FileSink : BufferedLogSink
         await _fileStream.WriteAsync(suffixBytes, ct);
         await _fileStream.FlushAsync(ct);
         _currentSize += totalBytes;
+    }
+
+    private void AcquireFileMutex()
+    {
+        try
+        {
+            _fileMutex!.WaitOne();
+        }
+        catch (AbandonedMutexException)
+        {
+            // Previous holder crashed — we now own the mutex, continue normally.
+        }
     }
 
     private void EnsureFileOpen()
@@ -102,6 +172,8 @@ public class FileSink : BufferedLogSink
             await _fileStream.DisposeAsync();
             _fileStream = null;
         }
+
+        _fileMutex?.Dispose();
     }
 
     private string GetTimeRolledName(DateTime periodStart)
@@ -139,6 +211,25 @@ public class FileSink : BufferedLogSink
             _fileStream = null;
         }
 
+        TryMoveFile(rolledPath);
+        EnsureFileOpen();
+    }
+
+    private void RollFileSync(string rolledPath)
+    {
+        if (_fileStream is not null)
+        {
+            _fileStream.Flush();
+            _fileStream.Dispose();
+            _fileStream = null;
+        }
+
+        TryMoveFile(rolledPath);
+        EnsureFileOpen();
+    }
+
+    private void TryMoveFile(string rolledPath)
+    {
         try
         {
             File.Move(_basePath, rolledPath, overwrite: false);
@@ -148,8 +239,20 @@ public class FileSink : BufferedLogSink
             // In shared mode, another process may have already rolled.
             // Just reopen the base path — the other process created a fresh file.
         }
+    }
 
-        EnsureFileOpen();
+    /// <summary>
+    /// FNV-1a hash of the normalized file path, used to derive a stable cross-platform mutex name.
+    /// </summary>
+    private static string ComputePathHash(string path)
+    {
+        uint hash = 2166136261u;
+        foreach (char c in path.ToUpperInvariant())
+        {
+            hash ^= c;
+            hash *= 16777619u;
+        }
+        return hash.ToString("X8");
     }
 
     private static string FormatPeriodSuffix(RollingInterval interval, DateTime periodStart) => interval switch
