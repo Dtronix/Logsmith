@@ -26,9 +26,12 @@ public sealed class LogConfigBuilder
         AddSink(new Sinks.ConsoleSink(colored, formatter: formatter));
     }
 
-    public void AddFileSink(string path, ILogFormatter? formatter = null, bool shared = false)
+    public void AddFileSink(string path, ILogFormatter? formatter = null, bool shared = false,
+                            Sinks.RollingInterval rollingInterval = Sinks.RollingInterval.None,
+                            long maxFileSizeBytes = 10 * 1024 * 1024)
     {
-        AddSink(new Sinks.FileSink(path, formatter: formatter, shared: shared));
+        AddSink(new Sinks.FileSink(path, formatter: formatter, shared: shared,
+            rollingInterval: rollingInterval, maxFileSizeBytes: maxFileSizeBytes));
     }
 
     public void AddDebugSink(ILogFormatter? formatter = null)
