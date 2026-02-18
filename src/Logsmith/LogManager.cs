@@ -43,12 +43,21 @@ public static class LogManager
 
         var sinkSet = config.Sinks;
 
+        var errorHandler = config.ErrorHandler;
+
         var textSinks = sinkSet.TextSinks;
         for (int i = 0; i < textSinks.Length; i++)
         {
             if (textSinks[i].IsEnabled(entry.Level))
             {
-                textSinks[i].Write(in entry, utf8Message);
+                try
+                {
+                    textSinks[i].Write(in entry, utf8Message);
+                }
+                catch (Exception ex)
+                {
+                    errorHandler?.Invoke(ex);
+                }
             }
         }
 
@@ -57,7 +66,14 @@ public static class LogManager
         {
             if (structuredSinks[i].IsEnabled(entry.Level))
             {
-                structuredSinks[i].WriteStructured(in entry, state, propertyWriter);
+                try
+                {
+                    structuredSinks[i].WriteStructured(in entry, state, propertyWriter);
+                }
+                catch (Exception ex)
+                {
+                    errorHandler?.Invoke(ex);
+                }
             }
         }
     }
