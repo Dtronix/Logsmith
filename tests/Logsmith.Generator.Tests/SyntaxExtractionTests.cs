@@ -310,6 +310,83 @@ public class SyntaxExtractionTests
         var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
         Assert.That(errors, Is.Empty,
             $"Full sample compilation should succeed. Errors: {string.Join("\n", errors.Select(e => e.ToString()))}");
+
+        var warnings = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Warning).ToList();
+        Assert.That(warnings, Is.Empty,
+            $"Full sample compilation should have no warnings. Warnings: {string.Join("\n", warnings.Select(w => w.ToString()))}");
+    }
+
+    [Test]
+    public void CallerInfo_NoDefaultValuesOnImplementation()
+    {
+        // CS1066: default values on partial method implementations have no effect
+        var source = """
+            using Logsmith;
+            using System.Runtime.CompilerServices;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Trace, "Checkpoint")]
+                static partial void Check(
+                    [CallerFilePath] string file = "",
+                    [CallerLineNumber] int line = 0,
+                    [CallerMemberName] string member = "");
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var (result, diagnostics) = GeneratorTestHelper.RunGeneratorWithDiagnostics(compilation);
+
+        var cs1066 = diagnostics.Where(d => d.Id == "CS1066").ToList();
+        Assert.That(cs1066, Is.Empty,
+            "Generated implementation should not emit default values on caller info params");
+    }
+
+    [Test]
+    public void NullableReferenceType_PreservedOnImplementation()
+    {
+        // CS8611: nullability mismatch between definition and implementation
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "User {name}")]
+                static partial void LogUser(string? name);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var (result, diagnostics) = GeneratorTestHelper.RunGeneratorWithDiagnostics(compilation);
+
+        var cs8611 = diagnostics.Where(d => d.Id == "CS8611").ToList();
+        Assert.That(cs8611, Is.Empty,
+            "Generated implementation should preserve nullable reference type annotation");
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        Assert.That(generated, Does.Contain("string? name"));
+    }
+
+    [Test]
+    public void NullableReferenceType_PreservedOnStateStruct()
+    {
+        // CS8604: possible null reference argument when passing nullable to non-nullable state ctor
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "User {name}")]
+                static partial void LogUser(string? name);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        // State struct field and constructor parameter should be nullable
+        Assert.That(generated, Does.Contain("readonly string? name;"));
     }
 
     private static string GetGeneratedSource(GeneratorRunResult result, string hintPrefix)
