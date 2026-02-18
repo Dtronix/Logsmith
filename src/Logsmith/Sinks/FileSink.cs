@@ -9,18 +9,24 @@ public class FileSink : BufferedLogSink
     private readonly long _maxFileSizeBytes;
     private readonly ILogFormatter _formatter;
     private readonly bool _shared;
+    private readonly RollingInterval _rollingInterval;
     private FileStream? _fileStream;
     private long _currentSize;
+    private DateTime _currentPeriodStart;
+    private int _sizeRollCount;
 
     public FileSink(string path, LogLevel minimumLevel = LogLevel.Trace,
                     long maxFileSizeBytes = 10 * 1024 * 1024,
-                    ILogFormatter? formatter = null, bool shared = false)
+                    ILogFormatter? formatter = null, bool shared = false,
+                    RollingInterval rollingInterval = RollingInterval.None)
         : base(minimumLevel)
     {
         _basePath = Path.GetFullPath(path);
         _maxFileSizeBytes = maxFileSizeBytes;
         _formatter = formatter ?? new DefaultLogFormatter(includeDate: true);
         _shared = shared;
+        _rollingInterval = rollingInterval;
+        _currentPeriodStart = GetPeriodStart(DateTime.UtcNow, _rollingInterval);
         EnsureFileOpen();
     }
 
@@ -44,6 +50,19 @@ public class FileSink : BufferedLogSink
 
         var totalBytes = prefixBytes.Length + entry.Utf8Message.Length + suffixBytes.Length;
 
+        // Time-based roll check (before size check)
+        if (_rollingInterval != RollingInterval.None)
+        {
+            var entryTime = new DateTime(entry.TimestampTicks, DateTimeKind.Utc);
+            var entryPeriod = GetPeriodStart(entryTime, _rollingInterval);
+            if (entryPeriod > _currentPeriodStart)
+            {
+                await RollFileAsync(ct, GetTimeRolledName(entryPeriod));
+                _currentPeriodStart = entryPeriod;
+                _sizeRollCount = 0;
+            }
+        }
+
         // In shared mode, seek to end to account for external writes
         if (_shared)
         {
@@ -51,9 +70,11 @@ public class FileSink : BufferedLogSink
             _currentSize = _fileStream.Position;
         }
 
+        // Size-based roll check
         if (_currentSize + totalBytes > _maxFileSizeBytes && _currentSize > 0)
         {
-            await RollFileAsync(ct);
+            _sizeRollCount++;
+            await RollFileAsync(ct, GetSizeRolledName());
         }
 
         await _fileStream!.WriteAsync(prefixBytes, ct);
@@ -84,7 +105,33 @@ public class FileSink : BufferedLogSink
         }
     }
 
-    private async Task RollFileAsync(CancellationToken ct)
+    private string GetTimeRolledName(DateTime periodStart)
+    {
+        var dir = Path.GetDirectoryName(_basePath)!;
+        var nameWithoutExt = Path.GetFileNameWithoutExtension(_basePath);
+        var ext = Path.GetExtension(_basePath);
+
+        var periodSuffix = FormatPeriodSuffix(_rollingInterval, _currentPeriodStart);
+        return Path.Combine(dir, $"{nameWithoutExt}.{periodSuffix}{ext}");
+    }
+
+    private string GetSizeRolledName()
+    {
+        var dir = Path.GetDirectoryName(_basePath)!;
+        var nameWithoutExt = Path.GetFileNameWithoutExtension(_basePath);
+        var ext = Path.GetExtension(_basePath);
+
+        if (_rollingInterval != RollingInterval.None)
+        {
+            var periodSuffix = FormatPeriodSuffix(_rollingInterval, _currentPeriodStart);
+            return Path.Combine(dir, $"{nameWithoutExt}.{periodSuffix}.{_sizeRollCount}{ext}");
+        }
+
+        // Size-only roll: timestamp-based name (original behavior)
+        return Path.Combine(dir, $"{nameWithoutExt}.{DateTime.UtcNow:yyyyMMdd-HHmmss}{ext}");
+    }
+
+    private async Task RollFileAsync(CancellationToken ct, string rolledPath)
     {
         if (_fileStream is not null)
         {
@@ -92,12 +139,6 @@ public class FileSink : BufferedLogSink
             await _fileStream.DisposeAsync();
             _fileStream = null;
         }
-
-        var dir = Path.GetDirectoryName(_basePath)!;
-        var nameWithoutExt = Path.GetFileNameWithoutExtension(_basePath);
-        var ext = Path.GetExtension(_basePath);
-        var rolledName = $"{nameWithoutExt}.{DateTime.UtcNow:yyyyMMdd-HHmmss}{ext}";
-        var rolledPath = Path.Combine(dir, rolledName);
 
         try
         {
@@ -110,5 +151,29 @@ public class FileSink : BufferedLogSink
         }
 
         EnsureFileOpen();
+    }
+
+    private static string FormatPeriodSuffix(RollingInterval interval, DateTime periodStart) => interval switch
+    {
+        RollingInterval.Hourly => periodStart.ToString("yyyy-MM-dd-HH"),
+        RollingInterval.Daily => periodStart.ToString("yyyy-MM-dd"),
+        RollingInterval.Weekly => periodStart.ToString("yyyy-MM-dd"),
+        RollingInterval.Monthly => periodStart.ToString("yyyy-MM"),
+        _ => periodStart.ToString("yyyyMMdd-HHmmss")
+    };
+
+    private static DateTime GetPeriodStart(DateTime utcNow, RollingInterval interval) => interval switch
+    {
+        RollingInterval.Hourly => new DateTime(utcNow.Year, utcNow.Month, utcNow.Day, utcNow.Hour, 0, 0, DateTimeKind.Utc),
+        RollingInterval.Daily => new DateTime(utcNow.Year, utcNow.Month, utcNow.Day, 0, 0, 0, DateTimeKind.Utc),
+        RollingInterval.Weekly => StartOfWeek(utcNow),
+        RollingInterval.Monthly => new DateTime(utcNow.Year, utcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc),
+        _ => DateTime.MinValue
+    };
+
+    private static DateTime StartOfWeek(DateTime utcNow)
+    {
+        int diff = ((int)utcNow.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
+        return new DateTime(utcNow.Year, utcNow.Month, utcNow.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(-diff);
     }
 }
