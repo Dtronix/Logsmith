@@ -66,6 +66,8 @@ public abstract class BufferedLogSink : ILogSink, IAsyncDisposable
         catch (OperationCanceledException) { }
     }
 
+    protected virtual ValueTask OnDisposeAsync() => ValueTask.CompletedTask;
+
     public void Dispose()
     {
         DisposeAsync().AsTask().GetAwaiter().GetResult();
@@ -76,5 +78,6 @@ public abstract class BufferedLogSink : ILogSink, IAsyncDisposable
         _channel.Writer.Complete();
         await _drainTask;
         _cts.Dispose();
+        await OnDisposeAsync();
     }
 }

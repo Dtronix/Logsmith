@@ -1,0 +1,81 @@
+using Logsmith.Sinks;
+
+namespace Logsmith.Tests.SinkTests;
+
+[TestFixture]
+public class FileSinkTests
+{
+    private string _tempDir = null!;
+
+    [SetUp]
+    public void SetUp()
+    {
+        _tempDir = Path.Combine(Path.GetTempPath(), $"logsmith_test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_tempDir);
+    }
+
+    [TearDown]
+    public void TearDown()
+    {
+        if (Directory.Exists(_tempDir))
+            Directory.Delete(_tempDir, recursive: true);
+    }
+
+    [Test]
+    public async Task Write_CreatesFileAndWritesContent()
+    {
+        var path = Path.Combine(_tempDir, "test.log");
+        var sink = new FileSink(path);
+        var entry = MakeEntry();
+
+        sink.Write(in entry, "file test"u8);
+        await sink.DisposeAsync();
+
+        var content = await File.ReadAllTextAsync(path);
+        Assert.That(content, Does.Contain("file test"));
+    }
+
+    [Test]
+    public async Task Write_ExceedsMaxSize_RollsFile()
+    {
+        var path = Path.Combine(_tempDir, "roll.log");
+        var sink = new FileSink(path, maxFileSizeBytes: 50);
+        var entry = MakeEntry();
+
+        // Write enough to exceed 50 bytes and trigger a roll
+        sink.Write(in entry, "This is a message that should trigger rolling"u8);
+        // Give the background drain time to process
+        await Task.Delay(200);
+        sink.Write(in entry, "Second message after roll"u8);
+        await sink.DisposeAsync();
+
+        var files = Directory.GetFiles(_tempDir, "roll*");
+        Assert.That(files, Has.Length.GreaterThanOrEqualTo(2));
+    }
+
+    [Test]
+    public async Task DisposeAsync_FlushesRemainingEntries()
+    {
+        var path = Path.Combine(_tempDir, "flush.log");
+        var sink = new FileSink(path);
+        var entry = MakeEntry();
+
+        sink.Write(in entry, "flushed"u8);
+        await sink.DisposeAsync();
+
+        var content = await File.ReadAllTextAsync(path);
+        Assert.That(content, Does.Contain("flushed"));
+    }
+
+    [Test]
+    public void IsEnabled_RespectsMinimumLevel()
+    {
+        var path = Path.Combine(_tempDir, "level.log");
+        using var sink = new FileSink(path, minimumLevel: LogLevel.Error);
+        Assert.That(sink.IsEnabled(LogLevel.Debug), Is.False);
+        Assert.That(sink.IsEnabled(LogLevel.Error), Is.True);
+    }
+
+    private static LogEntry MakeEntry() => new(
+        LogLevel.Information, 1, DateTime.UtcNow.Ticks, "Test");
+}
