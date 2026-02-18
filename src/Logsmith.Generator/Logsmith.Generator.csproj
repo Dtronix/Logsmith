@@ -2,17 +2,15 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <IsRoslynComponent>true</IsRoslynComponent>
-    <Nullable>enable</Nullable>
-    <LangVersion>latest</LangVersion>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
 
     <!-- NuGet packaging (standalone analyzer-only package) -->
     <PackageId>Logsmith.Generator</PackageId>
+    <IsPackable>true</IsPackable>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <IncludeBuildOutput>true</IncludeBuildOutput>
     <BuildOutputTargetFolder>analyzers/dotnet/cs</BuildOutputTargetFolder>
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
-    <IsPackable>true</IsPackable>
     <DevelopmentDependency>true</DevelopmentDependency>
     <Description>Logsmith source generator (standalone analyzer-only package)</Description>
   </PropertyGroup>

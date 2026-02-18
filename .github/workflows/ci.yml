@@ -27,36 +27,29 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Determine version
-        id: version
+      - name: Check if release
+        id: release
         run: |
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "is_release=true" >> "$GITHUB_OUTPUT"
           else
-            echo "version=0.0.0-ci.$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
             echo "is_release=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build
-        run: >-
-          dotnet build SouceGeneratorLogging.slnx
-          -c Release
-          -p:Version=${{ steps.version.outputs.version }}
-          -p:IncludeSymbols=true
-          -p:SymbolPackageFormat=snupkg
+        run: dotnet build SouceGeneratorLogging.slnx -c Release
 
       - name: Test
         run: dotnet test SouceGeneratorLogging.slnx -c Release --no-build
 
-      - name: Collect packages
-        run: |
-          mkdir -p staging
-          find . -path '*/bin/Release/*.nupkg' -exec cp {} staging/ \;
-          find . -path '*/bin/Release/*.snupkg' -exec cp {} staging/ \;
-          echo "Packages collected:"
-          ls -la staging/
+      - name: Pack
+        run: >-
+          dotnet pack SouceGeneratorLogging.slnx
+          -c Release
+          --no-build
+          -p:IncludeSymbols=true
+          -p:SymbolPackageFormat=snupkg
+          -o staging
 
       - name: Upload NuGet artifacts
         uses: actions/upload-artifact@v4
@@ -65,14 +58,15 @@ jobs:
           path: staging/*
 
       - name: Push to NuGet
-        if: steps.version.outputs.is_release == 'true'
+        if: steps.release.outputs.is_release == 'true'
         run: >-
           dotnet nuget push "staging/*.nupkg"
           --source https://api.nuget.org/v3/index.json
-          --api-key ${{ secrets.NUGET_API_KEY }}
+          --api-key ${{ secrets.ORG_NUGET_AUTH_TOKEN }}
+          --skip-duplicate
 
       - name: Create GitHub Release
-        if: steps.version.outputs.is_release == 'true'
+        if: steps.release.outputs.is_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
