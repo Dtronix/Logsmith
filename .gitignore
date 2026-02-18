@@ -51,6 +51,9 @@ Cargo.lock
 **/*.rs.bk
 *.pdb
 
+# BenchmarkDotNet
+BenchmarkDotNet.Artifacts/
+
 # Test Results
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
