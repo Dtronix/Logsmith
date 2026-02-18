@@ -26,9 +26,9 @@ public sealed class LogConfigBuilder
         AddSink(new Sinks.ConsoleSink(colored, formatter: formatter));
     }
 
-    public void AddFileSink(string path, ILogFormatter? formatter = null)
+    public void AddFileSink(string path, ILogFormatter? formatter = null, bool shared = false)
     {
-        AddSink(new Sinks.FileSink(path, formatter: formatter));
+        AddSink(new Sinks.FileSink(path, formatter: formatter, shared: shared));
     }
 
     public void AddDebugSink(ILogFormatter? formatter = null)

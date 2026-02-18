@@ -92,6 +92,46 @@ public class FileSinkTests
         Assert.That(content, Is.EqualTo("raw message"));
     }
 
+    [Test]
+    public void SharedMode_OpensWithReadWriteShare()
+    {
+        var path = Path.Combine(_tempDir, "shared.log");
+        using var sink1 = new FileSink(path, shared: true, formatter: NullLogFormatter.Instance);
+        // Second sink on same file should not throw
+        using var sink2 = new FileSink(path, shared: true, formatter: NullLogFormatter.Instance);
+        Assert.Pass();
+    }
+
+    [Test]
+    public async Task SharedMode_BothProcessesWrite()
+    {
+        var path = Path.Combine(_tempDir, "shared_both.log");
+        var sink1 = new FileSink(path, shared: true, formatter: NullLogFormatter.Instance);
+        var sink2 = new FileSink(path, shared: true, formatter: NullLogFormatter.Instance);
+        var entry = MakeEntry();
+
+        sink1.Write(in entry, "from-sink1"u8);
+        sink2.Write(in entry, "from-sink2"u8);
+        await sink1.DisposeAsync();
+        await sink2.DisposeAsync();
+
+        var content = await File.ReadAllTextAsync(path);
+        Assert.That(content, Does.Contain("from-sink1"));
+        Assert.That(content, Does.Contain("from-sink2"));
+    }
+
+    [Test]
+    public void NonSharedMode_DefaultBehavior_Unchanged()
+    {
+        var path = Path.Combine(_tempDir, "nonshared.log");
+        using var sink = new FileSink(path, shared: false, formatter: NullLogFormatter.Instance);
+        // Second sink on same file with non-shared mode should throw
+        Assert.Throws<IOException>(() =>
+        {
+            using var sink2 = new FileSink(path, shared: false, formatter: NullLogFormatter.Instance);
+        });
+    }
+
     private static LogEntry MakeEntry() => new(
         LogLevel.Information, 1, DateTime.UtcNow.Ticks, "Test");
 }
