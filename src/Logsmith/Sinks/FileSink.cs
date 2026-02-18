@@ -62,6 +62,16 @@ public class FileSink : BufferedLogSink
         _currentSize = _fileStream.Length;
     }
 
+    protected override async ValueTask OnDisposeAsync()
+    {
+        if (_fileStream is not null)
+        {
+            await _fileStream.FlushAsync();
+            await _fileStream.DisposeAsync();
+            _fileStream = null;
+        }
+    }
+
     private async Task RollFileAsync(CancellationToken ct)
     {
         if (_fileStream is not null)

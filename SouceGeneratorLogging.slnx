@@ -3,4 +3,7 @@
     <Project Path="src/Logsmith/Logsmith.csproj" />
     <Project Path="src/Logsmith.Generator/Logsmith.Generator.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Logsmith.Tests/Logsmith.Tests.csproj" />
+  </Folder>
 </Solution>
