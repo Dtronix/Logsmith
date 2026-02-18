@@ -4,5 +4,17 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
+
+    <!-- NuGet packaging -->
+    <PackageId>Logsmith</PackageId>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <IsPackable>true</IsPackable>
+    <Description>Zero-allocation, source-generator-driven logging for .NET</Description>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Logsmith.Generator/Logsmith.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
 </Project>
