@@ -11,6 +11,9 @@
       <Using Namespace="System.Text.RegularExpressions" />
       <Code Type="Fragment" Language="cs"><![CDATA[
         var content = File.ReadAllText(InputFile);
+        // Strip <img> tags. When an img tag is inline (non-whitespace on both sides), collapse to a single space.
+        // When the img tag is on its own line (only whitespace around it), remove the entire line.
+        content = Regex.Replace(content, @"(?<=\S)[ \t]*<img[^>]*/?>[ \t]*(?=\S)", " ", RegexOptions.IgnoreCase);
         content = Regex.Replace(content, @"[ \t]*<img[^>]*/?>[ \t]*\r?\n?", string.Empty, RegexOptions.IgnoreCase | RegexOptions.Multiline);
         Directory.CreateDirectory(Path.GetDirectoryName(OutputFile));
         File.WriteAllText(OutputFile, content);
