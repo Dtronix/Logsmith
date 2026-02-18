@@ -31,7 +31,7 @@ public static class LogManager
         return level >= config.MinimumLevel;
     }
 
-    internal static void Dispatch<TState>(
+    public static void Dispatch<TState>(
         in LogEntry entry,
         ReadOnlySpan<byte> utf8Message,
         TState state,

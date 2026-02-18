@@ -16,15 +16,19 @@ namespace Logsmith.Generator;
 [Generator(LanguageNames.CSharp)]
 public sealed class LogsmithGenerator : IIncrementalGenerator
 {
-    private const string LogMessageAttributeFullName = "Logsmith.LogMessageAttribute";
-    private const string LogCategoryAttributeFullName = "Logsmith.LogCategoryAttribute";
+    private static readonly string[] LogLevelNames =
+    {
+        "Trace", "Debug", "Information", "Warning", "Error", "Critical", "None"
+    };
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        // Find all methods decorated with [LogMessage]
-        var methodProvider = context.SyntaxProvider.ForAttributeWithMetadataName(
-            LogMessageAttributeFullName,
-            predicate: static (node, _) => node is MethodDeclarationSyntax,
+        // Find all methods decorated with [LogMessage] using syntax-only matching.
+        // This avoids requiring the attribute type to be in the compilation at provider
+        // evaluation time, which is essential for standalone mode where the attribute
+        // is emitted later via RegisterSourceOutput.
+        var methodProvider = context.SyntaxProvider.CreateSyntaxProvider(
+            predicate: static (node, _) => IsLogMessageCandidate(node),
             transform: static (ctx, ct) => ExtractMethodInfo(ctx, ct))
             .Where(static m => m != null)!;
 
@@ -96,16 +100,63 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
         });
     }
 
+    /// <summary>
+    /// Syntax-only predicate: checks if a node is a method with a [LogMessage] attribute.
+    /// No semantic resolution needed — matches on attribute name syntax only.
+    /// </summary>
+    private static bool IsLogMessageCandidate(SyntaxNode node)
+    {
+        if (node is not MethodDeclarationSyntax method)
+            return false;
+
+        foreach (var attrList in method.AttributeLists)
+        {
+            foreach (var attr in attrList.Attributes)
+            {
+                var name = GetSimpleAttributeName(attr.Name);
+                if (name == "LogMessage" || name == "LogMessageAttribute")
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Extracts the simple name from an attribute name syntax, handling qualified names.
+    /// </summary>
+    private static string GetSimpleAttributeName(NameSyntax nameSyntax)
+    {
+        return nameSyntax switch
+        {
+            SimpleNameSyntax simple => simple.Identifier.Text,
+            QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
+            AliasQualifiedNameSyntax alias => alias.Name.Identifier.Text,
+            _ => ""
+        };
+    }
+
     private static (LogMethodInfo? Method, IReadOnlyList<Diagnostic> Diagnostics)? ExtractMethodInfo(
-        GeneratorAttributeSyntaxContext ctx,
+        GeneratorSyntaxContext ctx,
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
 
-        var methodSymbol = (IMethodSymbol)ctx.TargetSymbol;
-        var methodSyntax = (MethodDeclarationSyntax)ctx.TargetNode;
-        var compilation = ctx.SemanticModel.Compilation;
+        var methodSyntax = (MethodDeclarationSyntax)ctx.Node;
+        var semanticModel = ctx.SemanticModel;
         var diagnostics = new List<Diagnostic>();
+
+        // Find the LogMessage attribute in the syntax tree
+        var logMessageAttr = FindLogMessageAttribute(methodSyntax);
+        if (logMessageAttr == null)
+            return null;
+
+        // Get method symbol for semantic analysis
+        var methodSymbol = semanticModel.GetDeclaredSymbol(methodSyntax, ct);
+        if (methodSymbol == null)
+            return null;
+
+        var compilation = semanticModel.Compilation;
 
         // LSMITH003: validate static partial in partial class
         if (!methodSymbol.IsStatic || !methodSymbol.IsPartialDefinition)
@@ -139,27 +190,12 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
             return (null, diagnostics);
         }
 
-        // Extract attribute data
-        var attrData = ctx.Attributes.First();
-        int level = 0;
-        string message = "";
-        int eventId = 0;
-        bool alwaysEmit = false;
+        // Extract attribute data from syntax (works even when the attribute type
+        // is not yet in the compilation, i.e. standalone mode)
+        ExtractAttributeDataFromSyntax(logMessageAttr,
+            out int level, out string message, out int eventId, out bool alwaysEmit);
 
-        if (attrData.ConstructorArguments.Length > 0)
-            level = (int)(byte)attrData.ConstructorArguments[0].Value!;
-        if (attrData.ConstructorArguments.Length > 1)
-            message = (string)attrData.ConstructorArguments[1].Value! ?? "";
-
-        foreach (var named in attrData.NamedArguments)
-        {
-            if (named.Key == "EventId")
-                eventId = (int)named.Value.Value!;
-            else if (named.Key == "AlwaysEmit")
-                alwaysEmit = (bool)named.Value.Value!;
-        }
-
-        // Classify parameters
+        // Classify parameters (uses semantic model for BCL types like Exception, CallerInfo)
         var parameters = ParameterClassifier.Classify(methodSymbol, compilation);
 
         // Parse/bind template
@@ -191,16 +227,11 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
         // Has explicit sink?
         bool hasExplicitSink = parameters.Count > 0 && parameters[0].Kind == ParameterKind.Sink;
 
-        // Category
+        // Category — extract from syntax (works in standalone mode)
         string category = containingType.Name;
-        foreach (var attr in containingType.GetAttributes())
+        if (methodSyntax.Parent is TypeDeclarationSyntax classDecl)
         {
-            if (attr.AttributeClass?.ToDisplayString() == LogCategoryAttributeFullName)
-            {
-                if (attr.ConstructorArguments.Length > 0)
-                    category = (string)attr.ConstructorArguments[0].Value! ?? category;
-                break;
-            }
+            category = ExtractCategoryFromSyntax(classDecl) ?? containingType.Name;
         }
 
         // Namespace
@@ -210,6 +241,17 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
 
         // Read conditional level from MSBuild (will be combined later)
         string conditionalLevel = "";
+
+        // Accessibility
+        string accessModifier = methodSymbol.DeclaredAccessibility switch
+        {
+            Accessibility.Public => "public ",
+            Accessibility.Internal => "internal ",
+            Accessibility.Protected => "protected ",
+            Accessibility.ProtectedOrInternal => "protected internal ",
+            Accessibility.ProtectedAndInternal => "private protected ",
+            _ => ""
+        };
 
         var methodInfo = new LogMethodInfo(
             containingNamespace: containingNamespace,
@@ -225,8 +267,142 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
             hasExplicitSink: hasExplicitSink,
             isStandaloneMode: isStandaloneMode,
             conditionalLevel: conditionalLevel,
-            methodLocation: methodSyntax.GetLocation());
+            methodLocation: methodSyntax.GetLocation(),
+            accessModifier: accessModifier);
 
         return (methodInfo, diagnostics);
+    }
+
+    /// <summary>
+    /// Finds the [LogMessage] attribute syntax on a method declaration.
+    /// </summary>
+    private static AttributeSyntax? FindLogMessageAttribute(MethodDeclarationSyntax method)
+    {
+        foreach (var attrList in method.AttributeLists)
+        {
+            foreach (var attr in attrList.Attributes)
+            {
+                var name = GetSimpleAttributeName(attr.Name);
+                if (name == "LogMessage" || name == "LogMessageAttribute")
+                    return attr;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Extracts attribute constructor and named arguments purely from syntax.
+    /// </summary>
+    private static void ExtractAttributeDataFromSyntax(
+        AttributeSyntax attr,
+        out int level,
+        out string message,
+        out int eventId,
+        out bool alwaysEmit)
+    {
+        level = 2; // Default: Information
+        message = "";
+        eventId = 0;
+        alwaysEmit = false;
+
+        var args = attr.ArgumentList?.Arguments;
+        if (args == null || args.Value.Count == 0)
+            return;
+
+        int positionalIndex = 0;
+        foreach (var arg in args.Value)
+        {
+            if (arg.NameEquals != null)
+            {
+                // Named argument: EventId = 42, AlwaysEmit = true
+                string argName = arg.NameEquals.Name.Identifier.Text;
+                if (argName == "EventId")
+                    eventId = ExtractIntLiteral(arg.Expression);
+                else if (argName == "AlwaysEmit")
+                    alwaysEmit = ExtractBoolLiteral(arg.Expression);
+            }
+            else if (arg.NameColon != null)
+            {
+                // Named positional: level: LogLevel.Information
+                string argName = arg.NameColon.Name.Identifier.Text;
+                if (argName == "level")
+                    level = ExtractLogLevel(arg.Expression);
+                else if (argName == "message")
+                    message = ExtractStringLiteral(arg.Expression);
+            }
+            else
+            {
+                // Positional argument
+                if (positionalIndex == 0)
+                    level = ExtractLogLevel(arg.Expression);
+                else if (positionalIndex == 1)
+                    message = ExtractStringLiteral(arg.Expression);
+                positionalIndex++;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Extracts a LogLevel ordinal from a member access expression like LogLevel.Information.
+    /// </summary>
+    private static int ExtractLogLevel(ExpressionSyntax expr)
+    {
+        string memberName;
+        if (expr is MemberAccessExpressionSyntax memberAccess)
+            memberName = memberAccess.Name.Identifier.Text;
+        else if (expr is IdentifierNameSyntax identifier)
+            memberName = identifier.Identifier.Text;
+        else
+            return 2; // Default: Information
+
+        for (int i = 0; i < LogLevelNames.Length; i++)
+        {
+            if (LogLevelNames[i] == memberName)
+                return i;
+        }
+        return 2;
+    }
+
+    private static string ExtractStringLiteral(ExpressionSyntax expr)
+    {
+        if (expr is LiteralExpressionSyntax literal && literal.IsKind(SyntaxKind.StringLiteralExpression))
+            return literal.Token.ValueText;
+        return "";
+    }
+
+    private static int ExtractIntLiteral(ExpressionSyntax expr)
+    {
+        if (expr is LiteralExpressionSyntax literal && literal.Token.Value is int value)
+            return value;
+        return 0;
+    }
+
+    private static bool ExtractBoolLiteral(ExpressionSyntax expr)
+    {
+        if (expr.IsKind(SyntaxKind.TrueLiteralExpression))
+            return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Extracts the category name from a [LogCategory("...")] attribute on a class, using syntax.
+    /// Returns null if no LogCategory attribute is found.
+    /// </summary>
+    private static string? ExtractCategoryFromSyntax(TypeDeclarationSyntax classDecl)
+    {
+        foreach (var attrList in classDecl.AttributeLists)
+        {
+            foreach (var attr in attrList.Attributes)
+            {
+                var name = GetSimpleAttributeName(attr.Name);
+                if (name == "LogCategory" || name == "LogCategoryAttribute")
+                {
+                    var args = attr.ArgumentList?.Arguments;
+                    if (args != null && args.Value.Count > 0)
+                        return ExtractStringLiteral(args.Value[0].Expression);
+                }
+            }
+        }
+        return null;
     }
 }

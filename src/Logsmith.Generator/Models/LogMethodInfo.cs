@@ -19,6 +19,7 @@ public sealed class LogMethodInfo
     public bool IsStandaloneMode { get; }
     public string ConditionalLevel { get; }
     public Location MethodLocation { get; }
+    public string AccessModifier { get; }
 
     public LogMethodInfo(
         string containingNamespace,
@@ -34,7 +35,8 @@ public sealed class LogMethodInfo
         bool hasExplicitSink,
         bool isStandaloneMode,
         string conditionalLevel,
-        Location methodLocation)
+        Location methodLocation,
+        string accessModifier = "")
     {
         ContainingNamespace = containingNamespace;
         ContainingClassName = containingClassName;
@@ -50,5 +52,6 @@ public sealed class LogMethodInfo
         IsStandaloneMode = isStandaloneMode;
         ConditionalLevel = conditionalLevel;
         MethodLocation = methodLocation;
+        AccessModifier = accessModifier;
     }
 }

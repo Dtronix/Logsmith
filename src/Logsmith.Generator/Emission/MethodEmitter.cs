@@ -87,7 +87,7 @@ internal static class MethodEmitter
         }
 
         // Method signature
-        sb.Append($"    static partial void {method.MethodName}(");
+        sb.Append($"    {method.AccessModifier}static partial void {method.MethodName}(");
         sb.Append(string.Join(", ", method.Parameters.Select(p => FormatParameter(p))));
         sb.AppendLine(")");
         sb.AppendLine("    {");
@@ -189,8 +189,6 @@ internal static class MethodEmitter
     internal static string EmitStateStruct(LogMethodInfo method)
     {
         var messageParams = method.Parameters.Where(p => p.Kind == ParameterKind.MessageParam).ToList();
-        if (messageParams.Count == 0)
-            return string.Empty;
 
         var sb = new StringBuilder();
         string stateTypeName = $"{method.MethodName}State";
@@ -198,31 +196,34 @@ internal static class MethodEmitter
         sb.AppendLine($"    private readonly ref struct {stateTypeName}");
         sb.AppendLine("    {");
 
-        // Fields
-        foreach (var param in messageParams)
+        if (messageParams.Count > 0)
         {
-            string fieldType = param.IsNullableValueType
-                ? $"{param.TypeFullName}?"
-                : param.TypeFullName;
-            sb.AppendLine($"        internal readonly {fieldType} {param.Name};");
-        }
+            // Fields
+            foreach (var param in messageParams)
+            {
+                string fieldType = param.IsNullableValueType
+                    ? $"{param.TypeFullName}?"
+                    : param.TypeFullName;
+                sb.AppendLine($"        internal readonly {fieldType} {param.Name};");
+            }
 
-        sb.AppendLine();
+            sb.AppendLine();
 
-        // Constructor
-        sb.Append($"        internal {stateTypeName}(");
-        sb.Append(string.Join(", ", messageParams.Select(p =>
-        {
-            string paramType = p.IsNullableValueType ? $"{p.TypeFullName}?" : p.TypeFullName;
-            return $"{paramType} {p.Name}";
-        })));
-        sb.AppendLine(")");
-        sb.AppendLine("        {");
-        foreach (var param in messageParams)
-        {
-            sb.AppendLine($"            this.{param.Name} = {param.Name};");
+            // Constructor
+            sb.Append($"        internal {stateTypeName}(");
+            sb.Append(string.Join(", ", messageParams.Select(p =>
+            {
+                string paramType = p.IsNullableValueType ? $"{p.TypeFullName}?" : p.TypeFullName;
+                return $"{paramType} {p.Name}";
+            })));
+            sb.AppendLine(")");
+            sb.AppendLine("        {");
+            foreach (var param in messageParams)
+            {
+                sb.AppendLine($"            this.{param.Name} = {param.Name};");
+            }
+            sb.AppendLine("        }");
         }
-        sb.AppendLine("        }");
 
         sb.AppendLine("    }");
         return sb.ToString();
@@ -262,12 +263,15 @@ internal static class MethodEmitter
         if (param.IsNullableValueType)
             type = $"{type}?";
 
+        // Caller info attributes are already on the user's definition part;
+        // re-emitting them on the implementation causes CS0579 (duplicate attribute).
+        // Just emit the parameter with its default value.
         if (param.Kind == ParameterKind.CallerFile)
-            return $"[global::System.Runtime.CompilerServices.CallerFilePath] {type} {param.Name} = \"\"";
+            return $"{type} {param.Name} = \"\"";
         if (param.Kind == ParameterKind.CallerLine)
-            return $"[global::System.Runtime.CompilerServices.CallerLineNumber] {type} {param.Name} = 0";
+            return $"{type} {param.Name} = 0";
         if (param.Kind == ParameterKind.CallerMember)
-            return $"[global::System.Runtime.CompilerServices.CallerMemberName] {type} {param.Name} = \"\"";
+            return $"{type} {param.Name} = \"\"";
 
         if (param.HasDefaultValue)
         {
