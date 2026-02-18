@@ -1,6 +1,10 @@
-# Logsmith
+<p align="center">
+  <img src="logo.png" alt="Logsmith" width="120" />
+</p>
 
-**Zero-allocation, source-generated structured logging for .NET 10.**
+<h1 align="center">Logsmith</h1>
+
+<p align="center"><strong>Zero-allocation, source-generated structured logging for .NET 10.</strong></p>
 
 Logsmith is a logging framework where the source generator *is* the framework. Every log method is analyzed at compile time, and the generator emits fully specialized, zero-allocation UTF8 code tailored to your exact parameters. No reflection. No boxing. No runtime parsing of message templates. No middleware. Just direct, type-safe writes from your call site to your output sink.
 
@@ -795,4 +799,4 @@ Classification is by attribute and type, not by parameter position. Parameters o
 
 ## License
 
-[To be determined]
+This project is licensed under the [MIT License](LICENSE).
