@@ -24,6 +24,8 @@ Logsmith is a logging framework where the source generator *is* the framework. E
 - [Message Templates](#message-templates)
 - [Log Levels and Conditional Compilation](#log-levels-and-conditional-compilation)
 - [Sinks](#sinks)
+- [Log Formatting](#log-formatting)
+- [Format Specifiers](#format-specifiers)
 - [Structured Output](#structured-output)
 - [Performance: `in` Parameters](#performance-in-parameters)
 - [Custom Type Serialization](#custom-type-serialization)
@@ -122,7 +124,23 @@ The generator produces diagnostics for template placeholder mismatches, unrefere
 
 ### Built-In Sinks
 
-Five sinks ship with the framework: `ConsoleSink` with ANSI color, `FileSink` with async-buffered writing and rolling, `DebugSink` for IDE output windows, `RecordingSink` for test assertions, and `NullSink` for benchmarking.
+Six sinks ship with the framework: `ConsoleSink` with ANSI color, `FileSink` with async-buffered writing, size and time-based rolling, and multi-process support, `StreamSink` for writing to any `Stream`, `DebugSink` for IDE output windows, `RecordingSink` for test assertions, and `NullSink` for benchmarking.
+
+### Pluggable Log Formatting
+
+All sinks accept an `ILogFormatter` for customizing log line prefixes and suffixes. `DefaultLogFormatter` provides timestamp, level, and category formatting. `NullLogFormatter` outputs raw messages only. Custom formatters write directly to `IBufferWriter<byte>` for zero-allocation output.
+
+### Format Specifiers in Templates
+
+Message templates support standard .NET format strings (`{value:F2}`) and JSON serialization (`{obj:json}`). Format specifiers are parsed at compile time and emitted as static code — no runtime template parsing.
+
+### Internal Error Handling
+
+Sink exceptions in `LogManager.Dispatch` are caught and routed to a configurable `InternalErrorHandler`. A failed sink does not prevent other sinks from executing or crash the application.
+
+### Thread Info Capture
+
+Every `LogEntry` carries `ThreadId` and `ThreadName` captured at the call site. Available for structured sinks and explicit template references (`{threadId}`, `{threadName}`). Not rendered in text output by default.
 
 ---
 
@@ -153,11 +171,12 @@ The generator emits all infrastructure types as `internal` into your assembly. N
 ### 1. Initialize at startup
 
 ```csharp
-Log.Initialize(config =>
+LogManager.Initialize(config =>
 {
     config.MinimumLevel = LogLevel.Debug;
     config.AddConsoleSink();
-    config.AddFileSink("logs/app.log");
+    config.AddFileSink("logs/app.log", rollingInterval: RollingInterval.Daily);
+    config.InternalErrorHandler = ex => Console.Error.WriteLine(ex);
 });
 ```
 
@@ -362,9 +381,22 @@ Async-buffered file writing using `Channel<T>`. The calling thread enqueues a bu
 
 ```csharp
 config.AddFileSink("logs/app.log");
-config.AddFileSink("logs/app.log", rolling: RollingPolicy.Daily);
-config.AddFileSink("logs/app.log", rolling: RollingPolicy.Size, maxFileSize: 10 * 1024 * 1024);
+config.AddFileSink("logs/app.log", rollingInterval: RollingInterval.Daily);
+config.AddFileSink("logs/app.log", rollingInterval: RollingInterval.Hourly, maxFileSizeBytes: 50_000_000);
+config.AddFileSink("logs/app.log", shared: true); // multi-process safe
 ```
+
+Rolling intervals: `None`, `Hourly`, `Daily`, `Weekly`, `Monthly`. Size-based rolling and time-based rolling can be combined. In shared mode (`shared: true`), the file is opened with `FileShare.ReadWrite` for safe concurrent appends from multiple processes.
+
+#### StreamSink
+
+Writes to any `Stream` via async-buffered `Channel<T>`. Useful for network streams, memory streams, or `Console.OpenStandardOutput()`.
+
+```csharp
+config.AddStreamSink(networkStream, leaveOpen: true);
+```
+
+When `leaveOpen` is true, the stream is flushed but not disposed when the sink is disposed.
 
 #### DebugSink
 
@@ -400,6 +432,69 @@ config.AddFileSink("logs/render.log", category: "Renderer");
 config.AddFileSink("logs/network.log", category: "Network");
 config.AddConsoleSink(); // receives everything
 ```
+
+---
+
+## Log Formatting
+
+All sinks accept an `ILogFormatter` parameter that controls the prefix and suffix around each log message. Formatters write directly to `IBufferWriter<byte>` for zero-allocation output.
+
+### DefaultLogFormatter
+
+The default formatter produces `[HH:mm:ss.fff LVL Category] ` prefixes for console output and `[yyyy-MM-dd HH:mm:ss.fff LVL Category] ` for file output, with newline suffixes and exception rendering.
+
+```csharp
+config.AddConsoleSink(formatter: new DefaultLogFormatter(includeDate: false));
+config.AddFileSink("app.log", formatter: new DefaultLogFormatter(includeDate: true));
+```
+
+### NullLogFormatter
+
+Outputs raw messages with no prefix or suffix:
+
+```csharp
+config.AddFileSink("raw.log", formatter: NullLogFormatter.Instance);
+```
+
+### Custom formatters
+
+Implement `ILogFormatter` for custom formatting:
+
+```csharp
+public sealed class JsonLineFormatter : ILogFormatter
+{
+    public void FormatPrefix(in LogEntry entry, IBufferWriter<byte> output) { /* ... */ }
+    public void FormatSuffix(in LogEntry entry, IBufferWriter<byte> output) { /* ... */ }
+}
+```
+
+---
+
+## Format Specifiers
+
+Message templates support format specifiers after a colon inside placeholders. Format specifiers are parsed at compile time and emitted as static code.
+
+### Standard .NET format strings
+
+```csharp
+[LogMessage(LogLevel.Information, "Price={price:F2}, Date={date:yyyy-MM-dd}")]
+public static partial void LogTransaction(decimal price, DateTime date);
+// Output: "Price=19.99, Date=2026-02-18"
+```
+
+The generator emits `writer.WriteFormatted(value, "F2")` which passes the format string directly to `IUtf8SpanFormattable.TryFormat`.
+
+### JSON serialization (`:json`)
+
+```csharp
+[LogMessage(LogLevel.Debug, "Config={config:json}")]
+public static partial void LogConfig(object config);
+// Output: Config={"key":"value","nested":{"a":1}}
+```
+
+The `:json` specifier uses `System.Text.Json.JsonSerializer.SerializeToUtf8Bytes` for the text path and `JsonSerializer.Serialize(writer, value)` for the structured path. Note that `:json` allocates (the `byte[]` from the serializer) — it is opt-in for complex objects.
+
+The generator emits `LSMITH006` warning when `:json` is applied to primitive types (`int`, `string`, `bool`, etc.) where default formatting is more efficient.
 
 ---
 
@@ -614,9 +709,7 @@ The generator produces the following diagnostics:
 | LSMITH003 | Error | Log method must be `static partial` in a `partial` class. |
 | LSMITH004 | Error | Parameter type does not implement `IUtf8SpanFormattable`, `ISpanFormattable`, `IFormattable`, or `ToString()`. |
 | LSMITH005 | Warning | Parameter has a `[Caller*]` attribute and also appears in the message template. Caller attribute takes priority. |
-| LSMITH006 | Error | Duplicate `[LogCategory]` attribute on nested classes. |
-
-A bundled code fix provider offers quick resolution for `LSMITH001` and `LSMITH002`, suggesting parameter renames to align message template placeholders with method parameter names.
+| LSMITH006 | Warning | `:json` format specifier on primitive type is unnecessary — prefer default formatting. |
 
 ---
 
@@ -750,18 +843,20 @@ Log.Initialize(config =>
     config.SetMinimumLevel("Renderer", LogLevel.Trace);
     config.SetMinimumLevel("Network", LogLevel.Warning);
 
-    // Add sinks
-    config.AddConsoleSink();
-    config.AddConsoleSink(colored: false);
-    config.AddFileSink("logs/app.log");
-    config.AddFileSink("logs/app.log", rolling: RollingPolicy.Daily);
-    config.AddFileSink("logs/app.log", rolling: RollingPolicy.Size, maxFileSize: 10_485_760);
-    config.AddDebugSink();
-    config.AddNullSink();
-    config.AddSink(new CustomSink());
+    // Internal error handler for sink exceptions
+    config.InternalErrorHandler = ex => Console.Error.WriteLine($"Logging error: {ex}");
 
-    // Category-filtered sinks
-    config.AddFileSink("logs/render.log", category: "Renderer");
+    // Add sinks (all accept optional ILogFormatter parameter)
+    config.AddConsoleSink();
+    config.AddConsoleSink(colored: false, formatter: NullLogFormatter.Instance);
+    config.AddFileSink("logs/app.log");
+    config.AddFileSink("logs/app.log", rollingInterval: RollingInterval.Daily);
+    config.AddFileSink("logs/app.log", rollingInterval: RollingInterval.Hourly,
+                       maxFileSizeBytes: 50_000_000);
+    config.AddFileSink("logs/app.log", shared: true);  // multi-process safe
+    config.AddStreamSink(networkStream, leaveOpen: true);
+    config.AddDebugSink();
+    config.AddSink(new CustomSink());
 });
 ```
 
