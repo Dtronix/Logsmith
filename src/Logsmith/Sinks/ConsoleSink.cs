@@ -1,4 +1,5 @@
-using System.Text;
+using System.Buffers;
+using Logsmith.Formatting;
 
 namespace Logsmith.Sinks;
 
@@ -6,39 +7,42 @@ public class ConsoleSink : TextLogSink
 {
     private readonly bool _colored;
     private readonly Stream _stdout;
+    private readonly ILogFormatter _formatter;
 
     private static ReadOnlySpan<byte> ResetCode => "\x1b[0m"u8;
 
-    public ConsoleSink(bool colored = true, LogLevel minimumLevel = LogLevel.Trace)
+    public ConsoleSink(bool colored = true, LogLevel minimumLevel = LogLevel.Trace, ILogFormatter? formatter = null)
         : base(minimumLevel)
     {
         _colored = colored;
         _stdout = Console.OpenStandardOutput();
+        _formatter = formatter ?? new DefaultLogFormatter(includeDate: false);
     }
 
     protected override void WriteMessage(in LogEntry entry, ReadOnlySpan<byte> utf8Message)
     {
-        var timestamp = new DateTime(entry.TimestampTicks, DateTimeKind.Utc);
-        var levelTag = GetLevelTag(entry.Level);
-        var prefix = $"[{timestamp:HH:mm:ss.fff} {levelTag} {entry.Category}] ";
+        var buffer = new ArrayBufferWriter<byte>(256);
+        _formatter.FormatPrefix(in entry, buffer);
+        var prefixBytes = buffer.WrittenSpan;
 
-        Span<byte> prefixBuffer = stackalloc byte[256];
-        int prefixLen = Encoding.UTF8.GetBytes(prefix, prefixBuffer);
+        buffer.ResetWrittenCount();
+        _formatter.FormatSuffix(in entry, buffer);
+        var suffixBytes = buffer.WrittenSpan;
 
         if (_colored)
         {
             var colorCode = GetAnsiColor(entry.Level);
             _stdout.Write(colorCode);
-            _stdout.Write(prefixBuffer[..prefixLen]);
+            _stdout.Write(prefixBytes);
             _stdout.Write(utf8Message);
+            _stdout.Write(suffixBytes);
             _stdout.Write(ResetCode);
-            _stdout.Write("\n"u8);
         }
         else
         {
-            _stdout.Write(prefixBuffer[..prefixLen]);
+            _stdout.Write(prefixBytes);
             _stdout.Write(utf8Message);
-            _stdout.Write("\n"u8);
+            _stdout.Write(suffixBytes);
         }
 
         _stdout.Flush();
@@ -53,17 +57,6 @@ public class ConsoleSink : TextLogSink
         LogLevel.Error => "\x1b[31m"u8,     // Red
         LogLevel.Critical => "\x1b[1;31m"u8, // Bold Red
         _ => ""u8
-    };
-
-    private static string GetLevelTag(LogLevel level) => level switch
-    {
-        LogLevel.Trace => "TRC",
-        LogLevel.Debug => "DBG",
-        LogLevel.Information => "INF",
-        LogLevel.Warning => "WRN",
-        LogLevel.Error => "ERR",
-        LogLevel.Critical => "CRT",
-        _ => "???"
     };
 
     public override void Dispose()

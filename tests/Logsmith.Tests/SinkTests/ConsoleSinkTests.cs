@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Text;
+using Logsmith.Formatting;
 using Logsmith.Sinks;
 
 namespace Logsmith.Tests.SinkTests;
@@ -44,6 +46,15 @@ public class ConsoleSinkTests
         Assert.That(sink.IsEnabled(LogLevel.Debug), Is.False);
         Assert.That(sink.IsEnabled(LogLevel.Warning), Is.True);
         Assert.That(sink.IsEnabled(LogLevel.Error), Is.True);
+    }
+
+    [Test]
+    public void CustomFormatter_UsedForPrefix()
+    {
+        // NullLogFormatter means no prefix — just verifying it doesn't throw
+        using var sink = new ConsoleSink(colored: false, formatter: NullLogFormatter.Instance);
+        var entry = MakeEntry(LogLevel.Information);
+        Assert.DoesNotThrow(() => sink.Write(in entry, "custom formatter test"u8));
     }
 
     private static LogEntry MakeEntry(LogLevel level) => new(

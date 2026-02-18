@@ -1,3 +1,4 @@
+using Logsmith.Formatting;
 using Logsmith.Sinks;
 
 namespace Logsmith.Tests.SinkTests;
@@ -74,6 +75,21 @@ public class FileSinkTests
         using var sink = new FileSink(path, minimumLevel: LogLevel.Error);
         Assert.That(sink.IsEnabled(LogLevel.Debug), Is.False);
         Assert.That(sink.IsEnabled(LogLevel.Error), Is.True);
+    }
+
+    [Test]
+    public async Task CustomFormatter_UsedInFileOutput()
+    {
+        var path = Path.Combine(_tempDir, "custom.log");
+        var sink = new FileSink(path, formatter: NullLogFormatter.Instance);
+        var entry = MakeEntry();
+
+        sink.Write(in entry, "raw message"u8);
+        await sink.DisposeAsync();
+
+        var content = await File.ReadAllTextAsync(path);
+        // NullLogFormatter emits no prefix/suffix, so content is just the raw message
+        Assert.That(content, Is.EqualTo("raw message"));
     }
 
     private static LogEntry MakeEntry() => new(
