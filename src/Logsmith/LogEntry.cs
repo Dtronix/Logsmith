@@ -10,6 +10,8 @@ public readonly struct LogEntry
     public readonly string? CallerFile;
     public readonly int CallerLine;
     public readonly string? CallerMember;
+    public readonly int ThreadId;
+    public readonly string? ThreadName;
 
     public LogEntry(
         LogLevel level,
@@ -19,7 +21,9 @@ public readonly struct LogEntry
         Exception? exception = null,
         string? callerFile = null,
         int callerLine = 0,
-        string? callerMember = null)
+        string? callerMember = null,
+        int threadId = 0,
+        string? threadName = null)
     {
         Level = level;
         EventId = eventId;
@@ -29,5 +33,7 @@ public readonly struct LogEntry
         CallerFile = callerFile;
         CallerLine = callerLine;
         CallerMember = callerMember;
+        ThreadId = threadId;
+        ThreadName = threadName;
     }
 }
