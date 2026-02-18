@@ -201,9 +201,7 @@ internal static class MethodEmitter
             // Fields
             foreach (var param in messageParams)
             {
-                string fieldType = param.IsNullableValueType
-                    ? $"{param.TypeFullName}?"
-                    : param.TypeFullName;
+                string fieldType = FormatType(param);
                 sb.AppendLine($"        internal readonly {fieldType} {param.Name};");
             }
 
@@ -213,7 +211,7 @@ internal static class MethodEmitter
             sb.Append($"        internal {stateTypeName}(");
             sb.Append(string.Join(", ", messageParams.Select(p =>
             {
-                string paramType = p.IsNullableValueType ? $"{p.TypeFullName}?" : p.TypeFullName;
+                string paramType = FormatType(p);
                 return $"{paramType} {p.Name}";
             })));
             sb.AppendLine(")");
@@ -259,19 +257,13 @@ internal static class MethodEmitter
 
     private static string FormatParameter(ParameterInfo param)
     {
-        string type = param.TypeFullName;
-        if (param.IsNullableValueType)
-            type = $"{type}?";
+        string type = FormatType(param);
 
-        // Caller info attributes are already on the user's definition part;
-        // re-emitting them on the implementation causes CS0579 (duplicate attribute).
-        // Just emit the parameter with its default value.
-        if (param.Kind == ParameterKind.CallerFile)
-            return $"{type} {param.Name} = \"\"";
-        if (param.Kind == ParameterKind.CallerLine)
-            return $"{type} {param.Name} = 0";
-        if (param.Kind == ParameterKind.CallerMember)
-            return $"{type} {param.Name} = \"\"";
+        // Caller info: attributes are on the user's definition part already.
+        // Don't emit default values on the implementation — they have no effect
+        // on partial method implementations and produce CS1066.
+        if (param.Kind is ParameterKind.CallerFile or ParameterKind.CallerLine or ParameterKind.CallerMember)
+            return $"{type} {param.Name}";
 
         if (param.HasDefaultValue)
         {
@@ -280,6 +272,16 @@ internal static class MethodEmitter
         }
 
         return $"{type} {param.Name}";
+    }
+
+    private static string FormatType(ParameterInfo param)
+    {
+        string type = param.TypeFullName;
+        if (param.IsNullableValueType)
+            type = $"{type}?";
+        else if (param.IsNullableReferenceType)
+            type = $"{type}?";
+        return type;
     }
 
     private static string EscapeString(string text)
