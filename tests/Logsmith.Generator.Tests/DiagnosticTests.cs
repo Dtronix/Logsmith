@@ -66,6 +66,26 @@ public class DiagnosticTests
     }
 
     [Test]
+    public void LSMITH006_JsonOnPrimitive_EmitsWarning()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Count={count:json}")]
+                static partial void LogCount(int count);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        Assert.That(result.Diagnostics, Has.Some.Matches<Diagnostic>(
+            d => d.Id == "LSMITH006"));
+    }
+
+    [Test]
     public void LSMITH005_CallerParamNameInTemplate()
     {
         var source = """

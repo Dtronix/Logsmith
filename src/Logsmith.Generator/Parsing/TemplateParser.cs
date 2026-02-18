@@ -37,8 +37,20 @@ internal static class TemplateParser
                 break;
             }
 
-            string placeholderName = template.Substring(braceStart + 1, braceEnd - braceStart - 1);
-            parts.Add(new TemplatePart(true, placeholderName));
+            string placeholderContent = template.Substring(braceStart + 1, braceEnd - braceStart - 1);
+            int colonIdx = placeholderContent.IndexOf(':');
+            string placeholderName;
+            string? formatSpecifier = null;
+            if (colonIdx >= 0)
+            {
+                placeholderName = placeholderContent.Substring(0, colonIdx);
+                formatSpecifier = placeholderContent.Substring(colonIdx + 1);
+            }
+            else
+            {
+                placeholderName = placeholderContent;
+            }
+            parts.Add(new TemplatePart(true, placeholderName, formatSpecifier));
             pos = braceEnd + 1;
         }
 
@@ -84,6 +96,16 @@ internal static class TemplateParser
             {
                 part.BoundParameter = param;
                 boundParams.Add(param.Name);
+
+                // LSMITH006: :json on primitive type
+                if (part.FormatSpecifier == "json" && IsPrimitiveType(param.TypeFullName))
+                {
+                    diagnostics.Add(Diagnostic.Create(
+                        DiagnosticDescriptors.LSMITH006,
+                        location,
+                        param.Name,
+                        param.TypeFullName));
+                }
             }
             else
             {
@@ -108,6 +130,20 @@ internal static class TemplateParser
         }
 
         return diagnostics;
+    }
+
+    private static bool IsPrimitiveType(string typeFullName)
+    {
+        return typeFullName is "string" or "global::System.String"
+            or "int" or "global::System.Int32"
+            or "long" or "global::System.Int64"
+            or "short" or "global::System.Int16"
+            or "byte" or "global::System.Byte"
+            or "float" or "global::System.Single"
+            or "double" or "global::System.Double"
+            or "decimal" or "global::System.Decimal"
+            or "bool" or "global::System.Boolean"
+            or "char" or "global::System.Char";
     }
 
     internal static IReadOnlyList<TemplatePart> GenerateTemplateFree(

@@ -243,7 +243,9 @@ internal static class MethodEmitter
             else if (part.BoundParameter != null)
             {
                 var param = part.BoundParameter;
-                if (param.TypeFullName == "global::System.String" || param.TypeFullName == "string")
+                if (part.FormatSpecifier == "json")
+                    size += 256;
+                else if (param.TypeFullName == "global::System.String" || param.TypeFullName == "string")
                     size += 128;
                 else
                     size += 32;

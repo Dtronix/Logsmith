@@ -199,6 +199,66 @@ public class CodeEmissionTests
     }
 
     [Test]
+    public void FormatSpecifier_EmitsWriteFormattedWithFormat()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Count={count:N0}")]
+                static partial void LogCount(int count);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        Assert.That(generated, Does.Contain("WriteFormatted(count, \"N0\")"));
+    }
+
+    [Test]
+    public void JsonSpecifier_EmitsSerializeToUtf8Bytes()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Data={data:json}")]
+                static partial void LogData(object data);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        Assert.That(generated, Does.Contain("SerializeToUtf8Bytes"));
+    }
+
+    [Test]
+    public void JsonSpecifier_StructuredPath_EmitsSerialize()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Data={data:json}")]
+                static partial void LogData(object data);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        Assert.That(generated, Does.Contain("JsonSerializer.Serialize(writer"));
+    }
+
+    [Test]
     public void ThreadInfo_EmittedInLogEntry()
     {
         var source = """

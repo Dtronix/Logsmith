@@ -32,6 +32,14 @@ public ref struct Utf8LogWriter
         }
     }
 
+    public void WriteFormatted<T>(in T value, ReadOnlySpan<char> format) where T : IUtf8SpanFormattable
+    {
+        if (value.TryFormat(_buffer[_position..], out int bytesWritten, format, null))
+        {
+            _position += bytesWritten;
+        }
+    }
+
     public void WriteString(string? value)
     {
         if (value is null)

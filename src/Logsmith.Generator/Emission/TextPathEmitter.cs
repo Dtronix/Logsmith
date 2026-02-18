@@ -20,23 +20,23 @@ internal static class TextPathEmitter
             else if (part.BoundParameter != null)
             {
                 var param = part.BoundParameter;
-                EmitParameterWrite(sb, param);
+                EmitParameterWrite(sb, param, part.FormatSpecifier);
             }
         }
 
         return sb.ToString();
     }
 
-    private static void EmitParameterWrite(StringBuilder sb, ParameterInfo param)
+    private static void EmitParameterWrite(StringBuilder sb, ParameterInfo param, string? formatSpecifier)
     {
-        string writeExpr = GetWriteExpression(param, param.Name);
+        string writeExpr = GetWriteExpression(param, param.Name, formatSpecifier);
         string nullWriteExpr = "writer.Write(\"null\"u8);";
 
         if (param.IsNullableValueType)
         {
             sb.AppendLine($"            if ({param.Name}.HasValue)");
             sb.AppendLine($"            {{");
-            sb.AppendLine($"                {GetWriteExpression(param, param.Name + ".Value")}");
+            sb.AppendLine($"                {GetWriteExpression(param, param.Name + ".Value", formatSpecifier)}");
             sb.AppendLine($"            }}");
             sb.AppendLine($"            else");
             sb.AppendLine($"            {{");
@@ -60,13 +60,25 @@ internal static class TextPathEmitter
         }
     }
 
-    private static string GetWriteExpression(ParameterInfo param, string accessor)
+    private static string GetWriteExpression(ParameterInfo param, string accessor, string? formatSpecifier)
     {
+        // :json format specifier — serialize to UTF-8 bytes via JsonSerializer
+        if (formatSpecifier == "json")
+        {
+            return $"writer.Write(global::System.Text.Json.JsonSerializer.SerializeToUtf8Bytes({accessor}));";
+        }
+
         // Type serialization priority: the actual kind is resolved at pipeline time
         // and stored in TypeFullName. Here we use simple heuristics based on the type.
         if (param.TypeFullName == "global::System.String" || param.TypeFullName == "string")
         {
             return $"writer.WriteString({accessor});";
+        }
+
+        // Standard format specifier — pass to WriteFormatted overload
+        if (formatSpecifier != null)
+        {
+            return $"writer.WriteFormatted({accessor}, \"{EscapeUtf8Literal(formatSpecifier)}\");";
         }
 
         // For IUtf8SpanFormattable types (most numeric primitives), use WriteFormatted

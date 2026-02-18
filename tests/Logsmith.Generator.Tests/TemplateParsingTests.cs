@@ -71,6 +71,91 @@ public class TemplateParsingTests
         Assert.That(generated, Does.Contain("DoSomething"));
     }
 
+    [Test]
+    public void Parse_FormatSpecifier_ExtractedFromPlaceholder()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Value={value:F2}")]
+                static partial void LogValue(double value);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        Assert.That(generated, Does.Contain("WriteFormatted"));
+        Assert.That(generated, Does.Contain("\"F2\""));
+    }
+
+    [Test]
+    public void Parse_JsonSpecifier_Recognized()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Data={data:json}")]
+                static partial void LogData(object data);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        Assert.That(generated, Does.Contain("SerializeToUtf8Bytes"));
+    }
+
+    [Test]
+    public void Parse_NoSpecifier_FormatIsNull()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Name={name}")]
+                static partial void LogName(string name);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        // Should use WriteString without any format specifier
+        Assert.That(generated, Does.Contain("WriteString(name)"));
+        Assert.That(generated, Does.Not.Contain("SerializeToUtf8Bytes"));
+    }
+
+    [Test]
+    public void Parse_ColonInLiteral_NotTreatedAsSpecifier()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "time: {val}")]
+                static partial void LogTime(int val);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        // The colon in "time: " is in a literal, not inside braces
+        Assert.That(generated, Does.Contain("time: "));
+        Assert.That(generated, Does.Contain("WriteFormatted(val)"));
+    }
+
     private static string GetGeneratedSource(GeneratorRunResult result, string hintPrefix)
     {
         var source = result.GeneratedSources
