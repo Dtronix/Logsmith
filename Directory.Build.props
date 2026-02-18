@@ -16,5 +16,11 @@
     <RepositoryType>git</RepositoryType>
     <PackageTags>logging;source-generator;zero-allocation;structured-logging;dotnet</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>logo-small.png</PackageIcon>
   </PropertyGroup>
+
+  <!-- Include icon in NuGet packages for packable projects -->
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <None Include="$(MSBuildThisFileDirectory)docs/images/logo-small.png" Pack="true" PackagePath="/" />
+  </ItemGroup>
 </Project>
