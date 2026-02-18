@@ -1,6 +1,25 @@
+using System.Buffers;
 using Logsmith;
 
 namespace Logsmith.Sample;
+
+// Large struct passed by reference to log methods using 'in' to avoid copying
+public struct SensorReading : IUtf8SpanFormattable
+{
+    public double Temperature;
+    public double Humidity;
+    public double Pressure;
+
+    public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten,
+        ReadOnlySpan<char> format, IFormatProvider? provider)
+    {
+        return System.Text.Unicode.Utf8.TryWrite(utf8Destination,
+            $"T={Temperature:F1} H={Humidity:F1} P={Pressure:F1}", out bytesWritten);
+    }
+
+    public string ToString(string? format, IFormatProvider? provider)
+        => $"T={Temperature:F1} H={Humidity:F1} P={Pressure:F1}";
+}
 
 [LogCategory("Sample")]
 public static partial class Log
@@ -35,4 +54,8 @@ public static partial class Log
     // Information with nullable reference type
     [LogMessage(LogLevel.Information, "User {userId} logged in, display name: {displayName}")]
     public static partial void UserLoggedIn(int userId, string? displayName);
+
+    // 'in' parameter — passes large struct by reference to avoid copying
+    [LogMessage(LogLevel.Information, "Sensor reported {reading}")]
+    public static partial void SensorData(in SensorReading reading);
 }

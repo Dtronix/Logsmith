@@ -24,7 +24,7 @@ public ref struct Utf8LogWriter
         _position += utf8Literal.Length;
     }
 
-    public void WriteFormatted<T>(T value) where T : IUtf8SpanFormattable
+    public void WriteFormatted<T>(in T value) where T : IUtf8SpanFormattable
     {
         if (value.TryFormat(_buffer[_position..], out int bytesWritten, default, null))
         {

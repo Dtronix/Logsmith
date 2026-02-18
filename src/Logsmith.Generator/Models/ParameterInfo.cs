@@ -9,6 +9,7 @@ public sealed class ParameterInfo
     public bool IsNullableReferenceType { get; }
     public bool HasDefaultValue { get; }
     public object? DefaultValue { get; }
+    public string RefKind { get; }
 
     public ParameterInfo(
         string name,
@@ -17,7 +18,8 @@ public sealed class ParameterInfo
         bool isNullableValueType,
         bool isNullableReferenceType,
         bool hasDefaultValue,
-        object? defaultValue)
+        object? defaultValue,
+        string refKind = "")
     {
         Name = name;
         TypeFullName = typeFullName;
@@ -26,5 +28,6 @@ public sealed class ParameterInfo
         IsNullableReferenceType = isNullableReferenceType;
         HasDefaultValue = hasDefaultValue;
         DefaultValue = defaultValue;
+        RefKind = refKind;
     }
 }

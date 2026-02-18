@@ -317,6 +317,49 @@ public class SyntaxExtractionTests
     }
 
     [Test]
+    public void CustomStructParam_DifferentNamespace_CompilesSuccessfully()
+    {
+        var structSource = """
+            using System;
+            using System.Buffers;
+            namespace Acme.Models;
+            public struct SensorReading : IUtf8SpanFormattable
+            {
+                public double Temperature;
+                public double Humidity;
+                public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format, IFormatProvider? provider)
+                {
+                    bytesWritten = 0;
+                    return true;
+                }
+                public string ToString(string? format, IFormatProvider? provider) => $"T={Temperature}";
+            }
+            """;
+
+        var logSource = """
+            using Logsmith;
+            using Acme.Models;
+            namespace App.Logging;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Sensor reported {reading}")]
+                public static partial void SensorData(SensorReading reading);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(structSource, logSource);
+        var (result, diagnostics) = GeneratorTestHelper.RunGeneratorWithDiagnostics(compilation);
+
+        var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+        Assert.That(errors, Is.Empty,
+            $"Custom struct from different namespace should compile. Errors: {string.Join("\n", errors.Select(e => e.ToString()))}");
+
+        var generated = GetGeneratedSource(result, "App.Logging.Log");
+        // Type should be fully qualified with global:: prefix
+        Assert.That(generated, Does.Contain("global::Acme.Models.SensorReading"));
+    }
+
+    [Test]
     public void CallerInfo_NoDefaultValuesOnImplementation()
     {
         // CS1066: default values on partial method implementations have no effect
@@ -387,6 +430,92 @@ public class SyntaxExtractionTests
         var generated = GetGeneratedSource(result, "TestNs.Log");
         // State struct field and constructor parameter should be nullable
         Assert.That(generated, Does.Contain("readonly string? name;"));
+    }
+
+    [Test]
+    public void InParameter_PreservedOnImplementation()
+    {
+        var structSource = """
+            using System;
+            using System.Buffers;
+            namespace Acme.Models;
+            public struct SensorReading : IUtf8SpanFormattable
+            {
+                public double Temperature;
+                public double Humidity;
+                public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format, IFormatProvider? provider)
+                {
+                    bytesWritten = 0;
+                    return true;
+                }
+                public string ToString(string? format, IFormatProvider? provider) => $"T={Temperature}";
+            }
+            """;
+
+        var logSource = """
+            using Logsmith;
+            using Acme.Models;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Sensor reported {reading}")]
+                public static partial void SensorData(in SensorReading reading);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(structSource, logSource);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        // Method signature should have 'in' modifier
+        Assert.That(generated, Does.Contain("in global::Acme.Models.SensorReading reading"));
+        // State struct constructor should have 'in' modifier
+        Assert.That(generated, Does.Contain("internal SensorDataState(in global::Acme.Models.SensorReading reading)"));
+        // State construction should pass 'in'
+        Assert.That(generated, Does.Contain("new SensorDataState(in reading)"));
+    }
+
+    [Test]
+    public void InParameter_CompilationSucceeds()
+    {
+        var structSource = """
+            using System;
+            using System.Buffers;
+            namespace Acme.Models;
+            public struct SensorReading : IUtf8SpanFormattable
+            {
+                public double Temperature;
+                public double Humidity;
+                public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format, IFormatProvider? provider)
+                {
+                    bytesWritten = 0;
+                    return true;
+                }
+                public string ToString(string? format, IFormatProvider? provider) => $"T={Temperature}";
+            }
+            """;
+
+        var logSource = """
+            using Logsmith;
+            using Acme.Models;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Sensor reported {reading}")]
+                public static partial void SensorData(in SensorReading reading);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(structSource, logSource);
+        var (result, diagnostics) = GeneratorTestHelper.RunGeneratorWithDiagnostics(compilation);
+
+        var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+        Assert.That(errors, Is.Empty,
+            $"in parameter compilation should succeed. Errors: {string.Join("\n", errors.Select(e => e.ToString()))}");
+
+        var warnings = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Warning).ToList();
+        Assert.That(warnings, Is.Empty,
+            $"in parameter compilation should have no warnings. Warnings: {string.Join("\n", warnings.Select(w => w.ToString()))}");
     }
 
     private static string GetGeneratedSource(GeneratorRunResult result, string hintPrefix)
