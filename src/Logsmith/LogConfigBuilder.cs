@@ -1,3 +1,4 @@
+using Logsmith.Formatting;
 using Logsmith.Internal;
 
 namespace Logsmith;
@@ -20,23 +21,19 @@ public sealed class LogConfigBuilder
         _sinks.Add(sink);
     }
 
-    // Convenience methods — concrete sink types are defined in Plan 3 (Sinks/).
-    // These will be updated to instantiate ConsoleSink, FileSink, DebugSink
-    // once those types are implemented in the same assembly.
-
-    public void AddConsoleSink(bool colored = true)
+    public void AddConsoleSink(bool colored = true, ILogFormatter? formatter = null)
     {
-        AddSink(new Sinks.ConsoleSink(colored));
+        AddSink(new Sinks.ConsoleSink(colored, formatter: formatter));
     }
 
-    public void AddFileSink(string path)
+    public void AddFileSink(string path, ILogFormatter? formatter = null)
     {
-        AddSink(new Sinks.FileSink(path));
+        AddSink(new Sinks.FileSink(path, formatter: formatter));
     }
 
-    public void AddDebugSink()
+    public void AddDebugSink(ILogFormatter? formatter = null)
     {
-        AddSink(new Sinks.DebugSink());
+        AddSink(new Sinks.DebugSink(formatter: formatter));
     }
 
     public void ClearSinks()

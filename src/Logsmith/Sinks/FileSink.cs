@@ -1,21 +1,24 @@
-using System.Text;
+using System.Buffers;
+using Logsmith.Formatting;
 
 namespace Logsmith.Sinks;
 
 public class FileSink : BufferedLogSink
 {
-    private static readonly ReadOnlyMemory<byte> Newline = new byte[] { (byte)'\n' };
-
     private readonly string _basePath;
     private readonly long _maxFileSizeBytes;
+    private readonly ILogFormatter _formatter;
     private FileStream? _fileStream;
     private long _currentSize;
 
-    public FileSink(string path, LogLevel minimumLevel = LogLevel.Trace, long maxFileSizeBytes = 10 * 1024 * 1024)
+    public FileSink(string path, LogLevel minimumLevel = LogLevel.Trace,
+                    long maxFileSizeBytes = 10 * 1024 * 1024,
+                    ILogFormatter? formatter = null)
         : base(minimumLevel)
     {
         _basePath = Path.GetFullPath(path);
         _maxFileSizeBytes = maxFileSizeBytes;
+        _formatter = formatter ?? new DefaultLogFormatter(includeDate: true);
         EnsureFileOpen();
     }
 
@@ -24,21 +27,20 @@ public class FileSink : BufferedLogSink
         if (_fileStream is null)
             EnsureFileOpen();
 
-        var timestamp = new DateTime(entry.TimestampTicks, DateTimeKind.Utc);
-        var levelTag = entry.Level switch
-        {
-            LogLevel.Trace => "TRC",
-            LogLevel.Debug => "DBG",
-            LogLevel.Information => "INF",
-            LogLevel.Warning => "WRN",
-            LogLevel.Error => "ERR",
-            LogLevel.Critical => "CRT",
-            _ => "???"
-        };
+        var logEntry = new LogEntry(
+            entry.Level, entry.EventId, entry.TimestampTicks, entry.Category,
+            entry.Exception, entry.CallerFile, entry.CallerLine, entry.CallerMember,
+            entry.ThreadId, entry.ThreadName);
 
-        var prefix = $"[{timestamp:yyyy-MM-dd HH:mm:ss.fff} {levelTag} {entry.Category}] ";
-        var prefixBytes = Encoding.UTF8.GetBytes(prefix);
-        var totalBytes = prefixBytes.Length + entry.Utf8Message.Length + Newline.Length;
+        var buffer = new ArrayBufferWriter<byte>(256);
+        _formatter.FormatPrefix(in logEntry, buffer);
+        var prefixBytes = buffer.WrittenMemory;
+
+        var suffixBuffer = new ArrayBufferWriter<byte>(64);
+        _formatter.FormatSuffix(in logEntry, suffixBuffer);
+        var suffixBytes = suffixBuffer.WrittenMemory;
+
+        var totalBytes = prefixBytes.Length + entry.Utf8Message.Length + suffixBytes.Length;
 
         if (_currentSize + totalBytes > _maxFileSizeBytes && _currentSize > 0)
         {
@@ -47,7 +49,7 @@ public class FileSink : BufferedLogSink
 
         await _fileStream!.WriteAsync(prefixBytes, ct);
         await _fileStream.WriteAsync(entry.Utf8Message, ct);
-        await _fileStream.WriteAsync(Newline, ct);
+        await _fileStream.WriteAsync(suffixBytes, ct);
         await _fileStream.FlushAsync(ct);
         _currentSize += totalBytes;
     }
