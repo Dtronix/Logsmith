@@ -1,4 +1,4 @@
-# <img src="./docs/images/logo-small.png" width="48"> Logsmith [![CI](https://github.com/Dtronix/Logsmith/actions/workflows/ci.yml/badge.svg)](https://github.com/Dtronix/Logsmith/actions/workflows/ci.yml)
+# <img src="./docs/images/logo-small.png" height="48"> Logsmith [![CI](https://github.com/Dtronix/Logsmith/actions/workflows/ci.yml/badge.svg)](https://github.com/Dtronix/Logsmith/actions/workflows/ci.yml)
 
 Zero-allocation, source-generated structured logging for .NET 10.
 
