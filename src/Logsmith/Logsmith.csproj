@@ -2,7 +2,6 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
-    <DefineConstants>$(DefineConstants);LOGSMITH_EXCLUDE_BOOTSTRAP</DefineConstants>
 
     <!-- NuGet packaging -->
     <PackageId>Logsmith</PackageId>
@@ -18,7 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Logsmith.Generator/Logsmith.Generator.csproj"
-                      OutputItemType="Analyzer"
-                      ReferenceOutputAssembly="false" />
+                      IncludeAssets="analyzers"
+                      PrivateAssets="none" />
   </ItemGroup>
 </Project>
