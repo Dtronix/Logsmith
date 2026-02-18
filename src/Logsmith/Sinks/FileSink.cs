@@ -8,17 +8,19 @@ public class FileSink : BufferedLogSink
     private readonly string _basePath;
     private readonly long _maxFileSizeBytes;
     private readonly ILogFormatter _formatter;
+    private readonly bool _shared;
     private FileStream? _fileStream;
     private long _currentSize;
 
     public FileSink(string path, LogLevel minimumLevel = LogLevel.Trace,
                     long maxFileSizeBytes = 10 * 1024 * 1024,
-                    ILogFormatter? formatter = null)
+                    ILogFormatter? formatter = null, bool shared = false)
         : base(minimumLevel)
     {
         _basePath = Path.GetFullPath(path);
         _maxFileSizeBytes = maxFileSizeBytes;
         _formatter = formatter ?? new DefaultLogFormatter(includeDate: true);
+        _shared = shared;
         EnsureFileOpen();
     }
 
@@ -42,6 +44,13 @@ public class FileSink : BufferedLogSink
 
         var totalBytes = prefixBytes.Length + entry.Utf8Message.Length + suffixBytes.Length;
 
+        // In shared mode, seek to end to account for external writes
+        if (_shared)
+        {
+            _fileStream!.Seek(0, SeekOrigin.End);
+            _currentSize = _fileStream.Position;
+        }
+
         if (_currentSize + totalBytes > _maxFileSizeBytes && _currentSize > 0)
         {
             await RollFileAsync(ct);
@@ -60,7 +69,8 @@ public class FileSink : BufferedLogSink
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
 
-        _fileStream = new FileStream(_basePath, FileMode.Append, FileAccess.Write, FileShare.Read);
+        var fileShare = _shared ? FileShare.ReadWrite : FileShare.Read;
+        _fileStream = new FileStream(_basePath, FileMode.Append, FileAccess.Write, fileShare);
         _currentSize = _fileStream.Length;
     }
 
@@ -89,7 +99,15 @@ public class FileSink : BufferedLogSink
         var rolledName = $"{nameWithoutExt}.{DateTime.UtcNow:yyyyMMdd-HHmmss}{ext}";
         var rolledPath = Path.Combine(dir, rolledName);
 
-        File.Move(_basePath, rolledPath);
+        try
+        {
+            File.Move(_basePath, rolledPath, overwrite: false);
+        }
+        catch (IOException) when (_shared)
+        {
+            // In shared mode, another process may have already rolled.
+            // Just reopen the base path — the other process created a fresh file.
+        }
 
         EnsureFileOpen();
     }
