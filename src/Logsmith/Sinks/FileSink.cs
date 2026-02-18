@@ -4,6 +4,8 @@ namespace Logsmith.Sinks;
 
 public class FileSink : BufferedLogSink
 {
+    private static readonly ReadOnlyMemory<byte> Newline = new byte[] { (byte)'\n' };
+
     private readonly string _basePath;
     private readonly long _maxFileSizeBytes;
     private FileStream? _fileStream;
@@ -36,9 +38,7 @@ public class FileSink : BufferedLogSink
 
         var prefix = $"[{timestamp:yyyy-MM-dd HH:mm:ss.fff} {levelTag} {entry.Category}] ";
         var prefixBytes = Encoding.UTF8.GetBytes(prefix);
-        var newline = new byte[] { (byte)'\n' };
-
-        var totalBytes = prefixBytes.Length + entry.Utf8Message.Length + newline.Length;
+        var totalBytes = prefixBytes.Length + entry.Utf8Message.Length + Newline.Length;
 
         if (_currentSize + totalBytes > _maxFileSizeBytes && _currentSize > 0)
         {
@@ -47,7 +47,7 @@ public class FileSink : BufferedLogSink
 
         await _fileStream!.WriteAsync(prefixBytes, ct);
         await _fileStream.WriteAsync(entry.Utf8Message, ct);
-        await _fileStream.WriteAsync(newline, ct);
+        await _fileStream.WriteAsync(Newline, ct);
         await _fileStream.FlushAsync(ct);
         _currentSize += totalBytes;
     }

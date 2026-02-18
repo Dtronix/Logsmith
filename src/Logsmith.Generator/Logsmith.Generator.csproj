@@ -5,9 +5,26 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+
+    <!-- NuGet packaging (standalone analyzer-only package) -->
+    <PackageId>Logsmith.Generator</PackageId>
+    <IncludeBuildOutput>true</IncludeBuildOutput>
+    <BuildOutputTargetFolder>analyzers/dotnet/cs</BuildOutputTargetFolder>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <IsPackable>true</IsPackable>
+    <DevelopmentDependency>true</DevelopmentDependency>
+    <Description>Logsmith source generator (standalone analyzer-only package)</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.3.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Embed Logsmith source files for standalone mode -->
+  <ItemGroup>
+    <EmbeddedResource Include="../Logsmith/**/*.cs"
+                      Exclude="../Logsmith/obj/**;../Logsmith/bin/**"
+                      Link="EmbeddedSources/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>
