@@ -28,6 +28,14 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    internal static readonly DiagnosticDescriptor LSMITH004 = new(
+        id: "LSMITH004",
+        title: "No supported formatting path",
+        messageFormat: "Parameter '{0}' of type '{1}' does not implement any supported formatting interface (IUtf8SpanFormattable, ISpanFormattable, IFormattable, or ToString override)",
+        category: "Logsmith",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     internal static readonly DiagnosticDescriptor LSMITH005 = new(
         id: "LSMITH005",
         title: "Caller info parameter name in template",
