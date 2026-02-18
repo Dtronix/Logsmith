@@ -18,7 +18,7 @@ src/Logsmith/                    Runtime library (net10.0)
   LogEntry.cs                    readonly struct: Level,EventId,TimestampTicks,Category,Exception?,CallerFile?,CallerLine,CallerMember?
   LogManager.cs                  static: Initialize(Action<LogConfigBuilder>), Reconfigure(...), IsEnabled(LogLevel), Dispatch<TState>(...)
   LogConfigBuilder.cs            Fluent builder: MinimumLevel, AddSink(), AddConsoleSink(), AddFileSink(), AddDebugSink(), SetMinimumLevel(category,level), ClearSinks()
-  Utf8LogWriter.cs               ref struct: Write(ROSpan<byte>), WriteFormatted<T:IUtf8SpanFormattable>(), WriteString(string?), GetWritten()
+  Utf8LogWriter.cs               ref struct: Write(ROSpan<byte>), WriteFormatted<T:IUtf8SpanFormattable>(in T), WriteString(string?), GetWritten()
   Attributes/
     LogMessageAttribute.cs       [LogMessage(LogLevel, message?, EventId=, AlwaysEmit=)] on methods
     LogCategoryAttribute.cs      [LogCategory("name")] on classes
@@ -45,7 +45,7 @@ src/Logsmith.Generator/          Source generator (netstandard2.0, Roslyn 4.3)
   ConditionalCompilation.cs      [Conditional("DEBUG")] for methods ≤ threshold level
   Models/
     LogMethodInfo.cs             All method metadata: namespace, class, params, template, mode, level, eventId
-    ParameterInfo.cs             Name, TypeFullName, Kind, IsNullableValueType, IsNullableReferenceType, defaults
+    ParameterInfo.cs             Name, TypeFullName, Kind, IsNullableValueType, IsNullableReferenceType, defaults, RefKind
     ParameterKind.cs             enum: MessageParam, Sink, Exception, CallerFile, CallerLine, CallerMember
     TemplatePart.cs              IsPlaceholder, Text, BoundParameter?
   Parsing/
@@ -92,6 +92,10 @@ public static partial class Log
     // Nullable params
     [LogMessage(LogLevel.Warning, "Missing value: {key}={value}")]
     public static partial void MissingValue(string key, int? value);
+
+    // 'in' parameter — passes large struct by reference, avoids copying
+    [LogMessage(LogLevel.Information, "Sensor reported {reading}")]
+    public static partial void SensorData(in SensorReading reading);
 
     // Explicit sink (bypasses LogManager, sink must be first param)
     [LogMessage(LogLevel.Information, "Direct: {msg}")]
@@ -163,6 +167,7 @@ Literals: byte count. String params: +128. Other params: +32. Clamped [128, 4096
 - Dual dispatch: `SinkSet` classifies sinks once at config time into text[] and structured[] arrays
 - Thread safety: `LogManager` uses `volatile` config + `Interlocked.CompareExchange` for init guard
 - Sink first-param convention: explicit `ILogSink` parameter must be at index 0, bypasses `LogManager`
+- `in` parameter support: `ParameterInfo.RefKind` ("in " or ""), preserved on method signature, state struct ctor, and state construction call
 - EventId: user-specified if nonzero, else stable FNV-1a hash of `"ClassName.MethodName"`
 - Visibility transform: standalone mode replaces `public` → `internal`, `protected` → `private protected`
 

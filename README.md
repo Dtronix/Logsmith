@@ -24,6 +24,7 @@ Logsmith is a logging framework where the source generator *is* the framework. E
 - [Log Levels and Conditional Compilation](#log-levels-and-conditional-compilation)
 - [Sinks](#sinks)
 - [Structured Output](#structured-output)
+- [Performance: `in` Parameters](#performance-in-parameters)
 - [Custom Type Serialization](#custom-type-serialization)
 - [Nullable Parameters](#nullable-parameters)
 - [Caller Information](#caller-information)
@@ -58,6 +59,7 @@ The generator reads your method declarations at build time. It knows the concret
 - A structured logging system that captures typed properties alongside human-readable messages.
 - A dual-mode package: reference the runtime library for shared types across projects, or use the generator alone for fully self-contained internal logging with no runtime dependency.
 - A compile-time safety net with diagnostics that catch template mismatches, missing parameters, and unsupported types before your code ever runs.
+- A framework that supports `in` parameters for passing large structs by reference, eliminating unnecessary copies on the logging hot path.
 - A framework that uses `[Conditional("DEBUG")]` to strip debug and trace log calls from release binaries at the compiler level, not just filter them at runtime.
 
 ## What Logsmith Is Not
@@ -66,8 +68,6 @@ The generator reads your method declarations at build time. It knows the concret
 - **Not a runtime-configurable logging framework.** Log levels can be changed at runtime, and sinks can be reconfigured, but message templates and parameter bindings are fixed at compile time. There is no runtime expression evaluator or dynamic template engine.
 - **Not a log aggregation or transport system.** Logsmith writes to local sinks (console, file, memory). Forwarding logs to remote services requires a custom sink implementation or an external agent reading the file output.
 - **Not a tracing or metrics framework.** Logsmith handles discrete log events. It does not provide distributed trace correlation, span management, or metric counters. It can coexist with OpenTelemetry, but does not replace it.
-- **Not a framework that uses reflection.** By design, Logsmith never inspects types at runtime. If a type cannot be resolved at compile time, the generator emits a diagnostic rather than falling back to runtime discovery.
-- **Not a framework that boxes value types.** No parameter is ever cast to `object`. The generator emits overloads specific to each parameter's concrete type.
 
 ---
 
@@ -212,6 +212,7 @@ Requirements:
 - The method must be `static partial`.
 - The method must return `void`.
 - Parameter names referenced in the message template are matched case-insensitively.
+- Parameters may use the `in` modifier to pass large structs by reference (see [Performance: `in` Parameters](#performance-in-parameters)).
 
 ### Categories
 
@@ -425,6 +426,34 @@ static (writer, state) =>
 ```
 
 The property names are UTF8 string literals derived from the parameter names at compile time.
+
+---
+
+## Performance: `in` Parameters
+
+For large value types, use the `in` modifier to pass by reference and avoid copying. The generator preserves `in` through the entire pipeline: method signature, state struct constructor, and state construction.
+
+```csharp
+public struct SensorReading : IUtf8SpanFormattable
+{
+    public double Temperature, Humidity, Pressure;
+    // ...
+}
+
+[LogCategory("Sensors")]
+public static partial class SensorLog
+{
+    [LogMessage(LogLevel.Information, "Sensor reported {reading}")]
+    public static partial void SensorData(in SensorReading reading);
+}
+
+// At the call site, the struct is passed by reference — no copy
+SensorLog.SensorData(in reading);
+```
+
+Without `in`, the struct would be copied at each handoff (call site to method, method to state constructor). With `in`, only a single copy occurs when the value is stored into the state struct field, which is unavoidable since references cannot be stored in fields.
+
+The `in` modifier is transparent at the call site for value types — existing callers that don't specify `in` explicitly continue to work (the compiler passes by reference automatically).
 
 ---
 

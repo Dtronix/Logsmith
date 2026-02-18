@@ -132,7 +132,7 @@ internal static class MethodEmitter
             var messageParams = method.Parameters.Where(p => p.Kind == ParameterKind.MessageParam).ToList();
 
             sb.Append($"        var __state = new {stateTypeName}(");
-            sb.Append(string.Join(", ", messageParams.Select(p => p.Name)));
+            sb.Append(string.Join(", ", messageParams.Select(p => $"{p.RefKind}{p.Name}")));
             sb.AppendLine(");");
             sb.AppendLine($"        global::Logsmith.LogManager.Dispatch(in __entry, __utf8Message, __state, WriteProperties_{method.MethodName});");
         }
@@ -212,7 +212,7 @@ internal static class MethodEmitter
             sb.Append(string.Join(", ", messageParams.Select(p =>
             {
                 string paramType = FormatType(p);
-                return $"{paramType} {p.Name}";
+                return $"{p.RefKind}{paramType} {p.Name}";
             })));
             sb.AppendLine(")");
             sb.AppendLine("        {");
@@ -268,10 +268,10 @@ internal static class MethodEmitter
         if (param.HasDefaultValue)
         {
             string defaultStr = param.DefaultValue == null ? "default" : param.DefaultValue.ToString();
-            return $"{type} {param.Name} = {defaultStr}";
+            return $"{param.RefKind}{type} {param.Name} = {defaultStr}";
         }
 
-        return $"{type} {param.Name}";
+        return $"{param.RefKind}{type} {param.Name}";
     }
 
     private static string FormatType(ParameterInfo param)

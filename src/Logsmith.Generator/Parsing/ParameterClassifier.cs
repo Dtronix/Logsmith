@@ -25,6 +25,8 @@ internal static class ParameterClassifier
                 ? ((INamedTypeSymbol)param.Type).TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
                 : param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
+            string refKind = param.RefKind == RefKind.In ? "in " : "";
+
             results.Add(new ParameterInfo(
                 name: param.Name,
                 typeFullName: typeFullName,
@@ -32,7 +34,8 @@ internal static class ParameterClassifier
                 isNullableValueType: isNullableValueType,
                 isNullableReferenceType: isNullableReferenceType,
                 hasDefaultValue: param.HasExplicitDefaultValue,
-                defaultValue: param.HasExplicitDefaultValue ? param.ExplicitDefaultValue : null));
+                defaultValue: param.HasExplicitDefaultValue ? param.ExplicitDefaultValue : null,
+                refKind: refKind));
         }
 
         return results;

@@ -18,6 +18,10 @@ Log.CacheMiss("user:99", cachedValue: 7);
 Log.UserLoggedIn(1001, "Alice");
 Log.UserLoggedIn(1002, displayName: null);
 
+// Large struct passed by reference — no copy at the call site
+var reading = new SensorReading { Temperature = 23.4, Humidity = 61.2, Pressure = 1013.25 };
+Log.SensorData(in reading);
+
 // Caller info — file, line, and member auto-populated
 Log.Checkpoint();
 
