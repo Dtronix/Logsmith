@@ -8,6 +8,7 @@ public sealed class LogConfigBuilder
     private readonly Dictionary<string, LogLevel> _categoryOverrides = new();
 
     public LogLevel MinimumLevel { get; set; } = LogLevel.Information;
+    public Action<Exception>? InternalErrorHandler { get; set; }
 
     public void SetMinimumLevel(string category, LogLevel level)
     {
@@ -46,6 +47,6 @@ public sealed class LogConfigBuilder
     internal LogConfig Build()
     {
         var sinkSet = SinkSet.Classify(_sinks);
-        return new LogConfig(MinimumLevel, new Dictionary<string, LogLevel>(_categoryOverrides), sinkSet);
+        return new LogConfig(MinimumLevel, new Dictionary<string, LogLevel>(_categoryOverrides), sinkSet, InternalErrorHandler);
     }
 }

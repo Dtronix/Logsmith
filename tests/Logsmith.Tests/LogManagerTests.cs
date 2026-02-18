@@ -122,6 +122,73 @@ public class LogManagerTests
         Assert.That(sink2.Entries, Has.Count.EqualTo(1));
     }
 
+    [Test]
+    public void Dispatch_SinkThrows_CallsErrorHandler()
+    {
+        Exception? caught = null;
+        LogManager.Initialize(c =>
+        {
+            c.AddSink(new ThrowingSink());
+            c.InternalErrorHandler = ex => caught = ex;
+        });
+
+        DispatchTestMessage(LogLevel.Information, "test");
+
+        Assert.That(caught, Is.Not.Null);
+        Assert.That(caught!.Message, Is.EqualTo("Sink failed"));
+    }
+
+    [Test]
+    public void Dispatch_SinkThrows_OtherSinksStillRun()
+    {
+        var recording = new RecordingSink();
+        LogManager.Initialize(c =>
+        {
+            c.AddSink(new ThrowingSink());
+            c.AddSink(recording);
+            c.InternalErrorHandler = _ => { };
+        });
+
+        DispatchTestMessage(LogLevel.Information, "test");
+
+        Assert.That(recording.Entries, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void Dispatch_SinkThrows_NoHandler_DoesNotPropagate()
+    {
+        LogManager.Initialize(c =>
+        {
+            c.AddSink(new ThrowingSink());
+        });
+
+        Assert.DoesNotThrow(() => DispatchTestMessage(LogLevel.Information, "test"));
+    }
+
+    [Test]
+    public void Dispatch_ErrorHandler_ReceivesOriginalException()
+    {
+        Exception? caught = null;
+        LogManager.Initialize(c =>
+        {
+            c.AddSink(new ThrowingSink());
+            c.InternalErrorHandler = ex => caught = ex;
+        });
+
+        DispatchTestMessage(LogLevel.Information, "test");
+
+        Assert.That(caught, Is.TypeOf<InvalidOperationException>());
+        Assert.That(caught!.Message, Is.EqualTo("Sink failed"));
+    }
+
+    private sealed class ThrowingSink : ILogSink
+    {
+        public bool IsEnabled(LogLevel level) => true;
+        public void Write(in LogEntry entry, ReadOnlySpan<byte> utf8Message) =>
+            throw new InvalidOperationException("Sink failed");
+        public void Dispose() { }
+    }
+
     private static void DispatchTestMessage(LogLevel level, string message)
     {
         if (!LogManager.IsEnabled(level))
