@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Logsmith/Logsmith.csproj" />
+    <Project Path="src/Logsmith.Generator/Logsmith.Generator.csproj" />
   </Folder>
 </Solution>
