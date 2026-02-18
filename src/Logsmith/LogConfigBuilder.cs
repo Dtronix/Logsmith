@@ -36,6 +36,11 @@ public sealed class LogConfigBuilder
         AddSink(new Sinks.DebugSink(formatter: formatter));
     }
 
+    public void AddStreamSink(Stream stream, bool leaveOpen = false, ILogFormatter? formatter = null)
+    {
+        AddSink(new Sinks.StreamSink(stream, formatter: formatter, leaveOpen: leaveOpen));
+    }
+
     public void ClearSinks()
     {
         _sinks.Clear();
