@@ -6,19 +6,6 @@ namespace Logsmith.Generator.Emission;
 
 internal static class EmbeddedSourceEmitter
 {
-    private static readonly string[] VisibilityReplacements = new[]
-    {
-        "public enum ",
-        "public interface ",
-        "public readonly struct ",
-        "public ref struct ",
-        "public struct ",
-        "public sealed class ",
-        "public static class ",
-        "public class ",
-        "public delegate ",
-    };
-
     /// <summary>
     /// Reads all embedded .cs resources from the generator assembly,
     /// performs visibility replacement, and adds to context.
@@ -48,16 +35,50 @@ internal static class EmbeddedSourceEmitter
     }
 
     /// <summary>
-    /// Replaces public type declarations with internal.
+    /// Type declaration patterns where "public" should be replaced with "internal".
+    /// Member-level "public" is kept because interface implementations must remain public.
+    /// </summary>
+    private static readonly string[] TypeDeclarationPatterns = new[]
+    {
+        "public enum ",
+        "public interface ",
+        "public readonly record struct ",
+        "public readonly struct ",
+        "public ref struct ",
+        "public record struct ",
+        "public record class ",
+        "public record ",
+        "public struct ",
+        "public sealed class ",
+        "public abstract class ",
+        "public static class ",
+        "public class ",
+        "public delegate ",
+    };
+
+    /// <summary>
+    /// Replaces public type declarations with internal and protected members
+    /// with private protected, keeping public member implementations intact
+    /// (required for interface implementation).
     /// </summary>
     internal static string ReplaceVisibility(string source)
     {
         var result = source;
-        foreach (var pattern in VisibilityReplacements)
+
+        // Replace type declarations: public → internal
+        foreach (var pattern in TypeDeclarationPatterns)
         {
             var replacement = "internal " + pattern.Substring("public ".Length);
             result = result.Replace(pattern, replacement);
         }
+
+        // Replace "protected internal" → "internal"
+        result = result.Replace("protected internal ", "internal ");
+
+        // Replace "protected" → "private protected" on members of internal types
+        // to fix inconsistent accessibility (CS0053/CS0051)
+        result = result.Replace("protected ", "private protected ");
+
         return result;
     }
 }

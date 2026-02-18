@@ -10,10 +10,17 @@ internal static class ModeDetector
     /// </summary>
     internal static bool IsSharedMode(Compilation compilation)
     {
-        var logLevelType = compilation.GetTypeByMetadataName("Logsmith.LogLevel");
-        if (logLevelType == null)
-            return false;
+        // Building the Logsmith project itself — types are defined in source
+        if (compilation.AssemblyName == "Logsmith")
+            return true;
 
-        return logLevelType.ContainingAssembly.Name == "Logsmith";
+        // Check if Logsmith assembly is referenced (shared mode via ProjectReference or NuGet)
+        foreach (var identity in compilation.ReferencedAssemblyNames)
+        {
+            if (identity.Name == "Logsmith")
+                return true;
+        }
+
+        return false;
     }
 }

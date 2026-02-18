@@ -7,4 +7,8 @@
     <Project Path="tests/Logsmith.Tests/Logsmith.Tests.csproj" />
     <Project Path="tests/Logsmith.Generator.Tests/Logsmith.Generator.Tests.csproj" />
   </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Logsmith.Sample/Logsmith.Sample.Shared.csproj" />
+    <Project Path="samples/Logsmith.Sample/Logsmith.Sample.Standalone.csproj" />
+  </Folder>
 </Solution>
