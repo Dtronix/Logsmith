@@ -12,6 +12,7 @@ Logsmith is a logging framework where the source generator *is* the framework. E
 
 ## Table of Contents
 
+- [Packages](#packages)
 - [Why Logsmith Exists](#why-logsmith-exists)
 - [What Logsmith Is](#what-logsmith-is)
 - [What Logsmith Is Not](#what-logsmith-is-not)
@@ -37,6 +38,13 @@ Logsmith is a logging framework where the source generator *is* the framework. E
 - [Configuration Reference](#configuration-reference)
 - [Architecture](#architecture)
 - [License](#license)
+
+## Packages
+
+| Name | NuGet | Description |
+|------|-------|-------------|
+| [`Logsmith`](https://www.nuget.org/packages/Logsmith) | [![Logsmith](https://img.shields.io/nuget/v/Logsmith.svg?maxAge=60)](https://www.nuget.org/packages/Logsmith) | Runtime library with public types, sinks, and the bundled source generator. Use this when multiple projects share log definitions. |
+| [`Logsmith.Generator`](https://www.nuget.org/packages/Logsmith.Generator) | [![Logsmith.Generator](https://img.shields.io/nuget/v/Logsmith.Generator.svg?maxAge=60)](https://www.nuget.org/packages/Logsmith.Generator) | Source generator only. Emits all infrastructure as internal types with zero runtime dependency. |
 
 ---
 
@@ -66,8 +74,6 @@ The generator reads your method declarations at build time. It knows the concret
 
 - **Not a replacement for `Microsoft.Extensions.Logging` in the ASP.NET Core ecosystem.** If your application depends on MEL-compatible sinks like Seq, Datadog, Application Insights, or OpenTelemetry collectors, those integrations expect MEL's `ILogger` interface. Logsmith defines its own `ILogSink` contract.
 - **Not a runtime-configurable logging framework.** Log levels can be changed at runtime, and sinks can be reconfigured, but message templates and parameter bindings are fixed at compile time. There is no runtime expression evaluator or dynamic template engine.
-- **Not a log aggregation or transport system.** Logsmith writes to local sinks (console, file, memory). Forwarding logs to remote services requires a custom sink implementation or an external agent reading the file output.
-- **Not a tracing or metrics framework.** Logsmith handles discrete log events. It does not provide distributed trace correlation, span management, or metric counters. It can coexist with OpenTelemetry, but does not replace it.
 
 ---
 
