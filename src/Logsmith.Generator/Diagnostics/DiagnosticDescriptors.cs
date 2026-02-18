@@ -43,4 +43,12 @@ internal static class DiagnosticDescriptors
         category: "Logsmith",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
+
+    internal static readonly DiagnosticDescriptor LSMITH006 = new(
+        id: "LSMITH006",
+        title: "JSON format specifier on primitive type",
+        messageFormat: "':json' format specifier on parameter '{0}' of primitive type '{1}' is unnecessary — prefer default formatting",
+        category: "Logsmith",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
 }

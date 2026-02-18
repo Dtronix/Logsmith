@@ -11,6 +11,16 @@ internal static class StructuredPathEmitter
         var sb = new StringBuilder();
         var stateTypeName = GetStateTypeName(method);
 
+        // Build format specifier lookup from template parts
+        var formatSpecifiers = new Dictionary<string, string>();
+        foreach (var part in method.TemplateParts)
+        {
+            if (part.IsPlaceholder && part.BoundParameter != null && part.FormatSpecifier != null)
+            {
+                formatSpecifiers[part.BoundParameter.Name] = part.FormatSpecifier;
+            }
+        }
+
         sb.AppendLine($"        private static void WriteProperties_{method.MethodName}(global::System.Text.Json.Utf8JsonWriter writer, {stateTypeName} state)");
         sb.AppendLine("        {");
 
@@ -19,14 +29,15 @@ internal static class StructuredPathEmitter
             if (param.Kind != ParameterKind.MessageParam)
                 continue;
 
-            EmitPropertyWrite(sb, param);
+            formatSpecifiers.TryGetValue(param.Name, out var formatSpec);
+            EmitPropertyWrite(sb, param, formatSpec);
         }
 
         sb.AppendLine("        }");
         return sb.ToString();
     }
 
-    private static void EmitPropertyWrite(StringBuilder sb, ParameterInfo param)
+    private static void EmitPropertyWrite(StringBuilder sb, ParameterInfo param, string formatSpecifier)
     {
         string accessor = $"state.{param.Name}";
 
@@ -34,7 +45,7 @@ internal static class StructuredPathEmitter
         {
             sb.AppendLine($"            if ({accessor}.HasValue)");
             sb.AppendLine($"            {{");
-            sb.AppendLine($"                writer.WriteString(\"{param.Name}\", {accessor}.Value.ToString());");
+            sb.AppendLine($"                {GetStructuredWriteExpression(param.Name, accessor + ".Value", param, formatSpecifier)}");
             sb.AppendLine($"            }}");
             sb.AppendLine($"            else");
             sb.AppendLine($"            {{");
@@ -45,21 +56,37 @@ internal static class StructuredPathEmitter
         {
             sb.AppendLine($"            if ({accessor} is not null)");
             sb.AppendLine($"            {{");
-            sb.AppendLine($"                writer.WriteString(\"{param.Name}\", {accessor}.ToString());");
+            sb.AppendLine($"                {GetStructuredWriteExpression(param.Name, accessor, param, formatSpecifier)}");
             sb.AppendLine($"            }}");
             sb.AppendLine($"            else");
             sb.AppendLine($"            {{");
             sb.AppendLine($"                writer.WriteNull(\"{param.Name}\");");
             sb.AppendLine($"            }}");
         }
-        else if (param.TypeFullName == "global::System.String" || param.TypeFullName == "string")
-        {
-            sb.AppendLine($"            writer.WriteString(\"{param.Name}\", {accessor});");
-        }
         else
         {
-            sb.AppendLine($"            writer.WriteString(\"{param.Name}\", {accessor}.ToString());");
+            sb.AppendLine($"            {GetStructuredWriteExpression(param.Name, accessor, param, formatSpecifier)}");
         }
+    }
+
+    private static string GetStructuredWriteExpression(string propertyName, string accessor, ParameterInfo param, string formatSpecifier)
+    {
+        if (formatSpecifier == "json")
+        {
+            return $"writer.WritePropertyName(\"{propertyName}\");\n                global::System.Text.Json.JsonSerializer.Serialize(writer, {accessor});";
+        }
+
+        if (formatSpecifier != null)
+        {
+            return $"writer.WriteString(\"{propertyName}\", {accessor}.ToString(\"{formatSpecifier}\"));";
+        }
+
+        if (param.TypeFullName == "global::System.String" || param.TypeFullName == "string")
+        {
+            return $"writer.WriteString(\"{propertyName}\", {accessor});";
+        }
+
+        return $"writer.WriteString(\"{propertyName}\", {accessor}.ToString());";
     }
 
     internal static string EmitPropertyWrite(ParameterInfo param, bool isStructurable)
