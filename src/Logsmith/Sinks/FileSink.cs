@@ -90,8 +90,7 @@ public class FileSink : BufferedLogSink
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
 
-        var fileShare = _shared ? FileShare.ReadWrite : FileShare.Read;
-        _fileStream = new FileStream(_basePath, FileMode.Append, FileAccess.Write, fileShare);
+        _fileStream = new FileStream(_basePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
         _currentSize = _fileStream.Length;
     }
 
