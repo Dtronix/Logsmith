@@ -63,8 +63,8 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
                 if (method == null)
                     continue;
 
-                // Group by containing class
-                string key = $"{method.ContainingNamespace}.{method.ContainingClassName}";
+                // Group by containing class (qualified for nested types)
+                string key = $"{method.ContainingNamespace}.{method.QualifiedClassName}";
                 if (!grouped.TryGetValue(key, out var list))
                 {
                     list = new List<LogMethodInfo>();
@@ -79,7 +79,7 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
                 var first = kvp.Value[0];
                 var source = MethodEmitter.EmitClassFile(
                     first.ContainingNamespace,
-                    first.ContainingClassName,
+                    first.ContainingTypeChain,
                     kvp.Value);
 
                 string hintName = $"{kvp.Key}.g.cs";
@@ -168,26 +168,21 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
             return (null, diagnostics);
         }
 
-        // Check containing type is partial
+        // Build containing type chain and validate all types are partial
         var containingType = methodSymbol.ContainingType;
-        bool isContainingTypePartial = false;
-        foreach (var syntaxRef in containingType.DeclaringSyntaxReferences)
-        {
-            if (syntaxRef.GetSyntax(ct) is TypeDeclarationSyntax typeDecl &&
-                typeDecl.Modifiers.Any(SyntaxKind.PartialKeyword))
-            {
-                isContainingTypePartial = true;
-                break;
-            }
-        }
+        var typeChain = ExtractContainingTypeChain(containingType, ct);
 
-        if (!isContainingTypePartial)
+        foreach (var chainEntry in typeChain)
         {
-            diagnostics.Add(Diagnostic.Create(
-                DiagnosticDescriptors.LSMITH003,
-                methodSyntax.GetLocation(),
-                methodSymbol.Name));
-            return (null, diagnostics);
+            if (chainEntry.Modifiers == null)
+            {
+                // null modifiers signals non-partial ancestor
+                diagnostics.Add(Diagnostic.Create(
+                    DiagnosticDescriptors.LSMITH003,
+                    methodSyntax.GetLocation(),
+                    methodSymbol.Name));
+                return (null, diagnostics);
+            }
         }
 
         // Extract attribute data from syntax (works even when the attribute type
@@ -227,12 +222,26 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
         // Has explicit sink?
         bool hasExplicitSink = parameters.Count > 0 && parameters[0].Kind == ParameterKind.Sink;
 
-        // Category — extract from syntax (works in standalone mode)
+        // Category — walk type chain innermost-first for [LogCategory], fallback to innermost class name
         string category = containingType.Name;
-        if (methodSyntax.Parent is TypeDeclarationSyntax classDecl)
+        var currentTypeSymbol = containingType;
+        while (currentTypeSymbol != null && currentTypeSymbol.TypeKind is TypeKind.Class or TypeKind.Struct)
         {
-            category = ExtractCategoryFromSyntax(classDecl) ?? containingType.Name;
+            foreach (var syntaxRef in currentTypeSymbol.DeclaringSyntaxReferences)
+            {
+                if (syntaxRef.GetSyntax(ct) is TypeDeclarationSyntax typeDecl)
+                {
+                    var cat = ExtractCategoryFromSyntax(typeDecl);
+                    if (cat != null)
+                    {
+                        category = cat;
+                        goto categoryResolved;
+                    }
+                }
+            }
+            currentTypeSymbol = currentTypeSymbol.ContainingType;
         }
+        categoryResolved:;
 
         // Namespace
         string containingNamespace = containingType.ContainingNamespace?.IsGlobalNamespace == true
@@ -255,7 +264,7 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
 
         var methodInfo = new LogMethodInfo(
             containingNamespace: containingNamespace,
-            containingClassName: containingType.Name,
+            containingTypeChain: typeChain,
             methodName: methodSymbol.Name,
             category: category,
             level: level,
@@ -271,6 +280,82 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
             accessModifier: accessModifier);
 
         return (methodInfo, diagnostics);
+    }
+
+    private static readonly string[] AllowedModifiers =
+    {
+        "public", "private", "protected", "internal", "static", "sealed", "abstract", "new"
+    };
+
+    /// <summary>
+    /// Walks the ContainingType chain upward, collecting type name and modifiers.
+    /// Returns outermost-first order. A null Modifiers value signals a non-partial ancestor.
+    /// </summary>
+    private static IReadOnlyList<ContainingTypeInfo> ExtractContainingTypeChain(
+        INamedTypeSymbol containingType, CancellationToken ct)
+    {
+        var chain = new List<ContainingTypeInfo>();
+        var current = containingType;
+
+        while (current != null && current.TypeKind is TypeKind.Class or TypeKind.Struct)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            string? modifiers = null;
+            string keyword = "class";
+            bool isPartial = false;
+
+            foreach (var syntaxRef in current.DeclaringSyntaxReferences)
+            {
+                if (syntaxRef.GetSyntax(ct) is TypeDeclarationSyntax typeDecl)
+                {
+                    if (typeDecl.Modifiers.Any(SyntaxKind.PartialKeyword))
+                    {
+                        isPartial = true;
+                        // Extract allowed modifiers (excluding partial itself)
+                        var mods = new List<string>();
+                        foreach (var token in typeDecl.Modifiers)
+                        {
+                            string text = token.Text;
+                            for (int i = 0; i < AllowedModifiers.Length; i++)
+                            {
+                                if (AllowedModifiers[i] == text)
+                                {
+                                    mods.Add(text);
+                                    break;
+                                }
+                            }
+                        }
+                        modifiers = mods.Count > 0 ? string.Join(" ", mods) + " " : "";
+
+                        // Capture type keyword (class, struct, record class, record struct)
+                        keyword = typeDecl.Keyword.Text;
+                        if (typeDecl is RecordDeclarationSyntax recordDecl &&
+                            recordDecl.ClassOrStructKeyword != default)
+                        {
+                            keyword = $"record {recordDecl.ClassOrStructKeyword.Text}";
+                        }
+
+                        break;
+                    }
+                }
+            }
+
+            if (!isPartial)
+            {
+                // Signal non-partial with null modifiers
+                chain.Add(new ContainingTypeInfo(current.Name, null!, keyword));
+            }
+            else
+            {
+                chain.Add(new ContainingTypeInfo(current.Name, modifiers!, keyword));
+            }
+
+            current = current.ContainingType;
+        }
+
+        chain.Reverse();
+        return chain;
     }
 
     /// <summary>
