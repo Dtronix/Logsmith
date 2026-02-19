@@ -188,7 +188,17 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
         // Extract attribute data from syntax (works even when the attribute type
         // is not yet in the compilation, i.e. standalone mode)
         ExtractAttributeDataFromSyntax(logMessageAttr,
-            out int level, out string message, out int eventId, out bool alwaysEmit);
+            out int level, out string message, out int eventId, out bool alwaysEmit,
+            out int sampleRate, out int maxPerSecond);
+
+        // LSMITH007: warn if both SampleRate and MaxPerSecond are set
+        if (sampleRate > 0 && maxPerSecond > 0)
+        {
+            diagnostics.Add(Diagnostic.Create(
+                DiagnosticDescriptors.LSMITH007,
+                methodSyntax.GetLocation(),
+                methodSymbol.Name));
+        }
 
         // Classify parameters (uses semantic model for BCL types like Exception, CallerInfo)
         var parameters = ParameterClassifier.Classify(methodSymbol, compilation);
@@ -277,7 +287,9 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
             isStandaloneMode: isStandaloneMode,
             conditionalLevel: conditionalLevel,
             methodLocation: methodSyntax.GetLocation(),
-            accessModifier: accessModifier);
+            accessModifier: accessModifier,
+            sampleRate: sampleRate,
+            maxPerSecond: maxPerSecond);
 
         return (methodInfo, diagnostics);
     }
@@ -383,12 +395,16 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
         out int level,
         out string message,
         out int eventId,
-        out bool alwaysEmit)
+        out bool alwaysEmit,
+        out int sampleRate,
+        out int maxPerSecond)
     {
         level = 2; // Default: Information
         message = "";
         eventId = 0;
         alwaysEmit = false;
+        sampleRate = 0;
+        maxPerSecond = 0;
 
         var args = attr.ArgumentList?.Arguments;
         if (args == null || args.Value.Count == 0)
@@ -405,6 +421,10 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
                     eventId = ExtractIntLiteral(arg.Expression);
                 else if (argName == "AlwaysEmit")
                     alwaysEmit = ExtractBoolLiteral(arg.Expression);
+                else if (argName == "SampleRate")
+                    sampleRate = ExtractIntLiteral(arg.Expression);
+                else if (argName == "MaxPerSecond")
+                    maxPerSecond = ExtractIntLiteral(arg.Expression);
             }
             else if (arg.NameColon != null)
             {
