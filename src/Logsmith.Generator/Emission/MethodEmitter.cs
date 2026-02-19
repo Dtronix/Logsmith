@@ -74,7 +74,7 @@ internal static class MethodEmitter
         for (int i = 0; i < typeChain.Count; i++)
         {
             string indent = i > 0 ? new string(' ', i * 4) : "";
-            sb.AppendLine($"{indent}{typeChain[i].Modifiers}partial class {typeChain[i].Name}");
+            sb.AppendLine($"{indent}{typeChain[i].Modifiers}partial {typeChain[i].Keyword} {typeChain[i].Name}");
             sb.AppendLine($"{indent}{{");
         }
 
