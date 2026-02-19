@@ -31,6 +31,17 @@ public static class LogManager
         return level >= config.MinimumLevel;
     }
 
+    public static bool IsEnabled(LogLevel level, string category)
+    {
+        var config = _config;
+        if (config is null) return false;
+
+        if (config.CategoryOverrides.TryGetValue(category, out var categoryLevel))
+            return level >= categoryLevel;
+
+        return level >= config.MinimumLevel;
+    }
+
     public static void Dispatch<TState>(
         in LogEntry entry,
         ReadOnlySpan<byte> utf8Message,

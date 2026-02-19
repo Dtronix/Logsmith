@@ -62,13 +62,17 @@ LogManager.Initialize(c =>
     c.MinimumLevel = LogLevel.Debug;
     c.AddConsoleSink(colored: true);
     c.AddFileSink("logs/app.log", rollingInterval: RollingInterval.Daily);
-    c.SetMinimumLevel("NoisyCategory", LogLevel.Warning);
+    c.SetMinimumLevel("NoisyCategory", LogLevel.Warning); // by string
+    c.SetMinimumLevel<Log>(LogLevel.Warning); // by type (uses generated CategoryName constant)
     c.InternalErrorHandler = ex => Console.Error.WriteLine(ex);
 });
 ```
 
 `LogManager.Reconfigure(...)` — swap config at runtime (same API).
 `LogManager.IsEnabled(LogLevel)` — check before expensive computations.
+`LogManager.IsEnabled(LogLevel, string category)` — check with per-category override.
+
+Each generated log class emits `public const string CategoryName` with the resolved category (from `[LogCategory]` or class name).
 
 ## LogLevel Enum
 

@@ -31,6 +31,10 @@ internal static class MethodEmitter
         sb.AppendLine($"partial class {className}");
         sb.AppendLine("{");
 
+        // Emit CategoryName constant
+        var category = methods[0].Category;
+        sb.AppendLine($"    public const string CategoryName = \"{EscapeString(category)}\";");
+
         for (int i = 0; i < methods.Count; i++)
         {
             if (i > 0) sb.AppendLine();
@@ -101,7 +105,7 @@ internal static class MethodEmitter
         }
         else
         {
-            sb.AppendLine($"        if (!global::Logsmith.LogManager.IsEnabled(global::Logsmith.LogLevel.{levelName}))");
+            sb.AppendLine($"        if (!global::Logsmith.LogManager.IsEnabled(global::Logsmith.LogLevel.{levelName}, \"{EscapeString(method.Category)}\"))");
             sb.AppendLine("            return;");
         }
 

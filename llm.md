@@ -9,6 +9,7 @@ Two NuGet packages, two modes:
 - **Standalone mode**: Reference only `Logsmith.Generator` as analyzer. Generator embeds all runtime types as `internal`.
 
 Pipeline: `[LogMessage]` partial methods → Roslyn IncrementalGenerator → UTF-8 text path + JSON structured path.
+Generator emits `public const string CategoryName` on each log class for type-safe per-category configuration.
 
 ## Project Layout
 
@@ -16,8 +17,8 @@ Pipeline: `[LogMessage]` partial methods → Roslyn IncrementalGenerator → UTF
 src/Logsmith/                    Runtime library (net10.0)
   LogLevel.cs                    enum byte: Trace=0..Critical=5, None=6
   LogEntry.cs                    readonly struct: Level,EventId,TimestampTicks,Category,Exception?,CallerFile?,CallerLine,CallerMember?,ThreadId,ThreadName?
-  LogManager.cs                  static: Initialize(Action<LogConfigBuilder>), Reconfigure(...), IsEnabled(LogLevel), Dispatch<TState>(...) with try/catch error handler
-  LogConfigBuilder.cs            Fluent builder: MinimumLevel, InternalErrorHandler, AddSink(), AddConsoleSink(), AddFileSink(), AddDebugSink(), AddStreamSink(), SetMinimumLevel(category,level), ClearSinks()
+  LogManager.cs                  static: Initialize(Action<LogConfigBuilder>), Reconfigure(...), IsEnabled(LogLevel), IsEnabled(LogLevel, string category), Dispatch<TState>(...) with try/catch error handler
+  LogConfigBuilder.cs            Fluent builder: MinimumLevel, InternalErrorHandler, AddSink(), AddConsoleSink(), AddFileSink(), AddDebugSink(), AddStreamSink(), SetMinimumLevel(category,level), SetMinimumLevel<T>(level), ClearSinks()
   Utf8LogWriter.cs               ref struct: Write(ROSpan<byte>), WriteFormatted<T>(in T), WriteFormatted<T>(in T, ROSpan<char> format), WriteString(string?), GetWritten()
   Attributes/
     LogMessageAttribute.cs       [LogMessage(LogLevel, message?, EventId=, AlwaysEmit=)] on methods
@@ -129,7 +130,8 @@ LogManager.Initialize(cfg =>
         maxFileSizeBytes: 50 * 1024 * 1024);
     cfg.AddDebugSink();
     cfg.AddStreamSink(networkStream, leaveOpen: true);
-    cfg.SetMinimumLevel("Noisy", LogLevel.Warning); // per-category
+    cfg.SetMinimumLevel("Noisy", LogLevel.Warning); // per-category by string
+    cfg.SetMinimumLevel<Log>(LogLevel.Warning); // per-category by type (uses generated CategoryName constant)
     cfg.InternalErrorHandler = ex => Console.Error.WriteLine(ex);
 });
 
@@ -187,6 +189,8 @@ Literals: byte count. String params: +128. Other params: +32. `:json` params: +2
 - Thread safety: `LogManager` uses `volatile` config + `Interlocked.CompareExchange` for init guard
 - Sink first-param convention: explicit `ILogSink` parameter must be at index 0, bypasses `LogManager`
 - `in` parameter support: `ParameterInfo.RefKind` ("in " or ""), preserved on method signature, state struct ctor, and state construction call
+- CategoryName constant: generator emits `public const string CategoryName` per class, used by `SetMinimumLevel<T>()` to resolve category without magic strings
+- Per-category filtering: `IsEnabled(LogLevel, string category)` checks `CategoryOverrides` before global minimum; generated code passes category to this overload
 - EventId: user-specified if nonzero, else stable FNV-1a hash of `"ClassName.MethodName"`
 - Visibility transform: standalone mode replaces `public` → `internal`, `protected` → `private protected`
 - Thread info: `LogEntry.ThreadId`/`ThreadName` captured at call site. Not rendered in text output by default — available for structured sinks and explicit `{threadId}`/`{threadName}` template placeholders
