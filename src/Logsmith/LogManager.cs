@@ -6,6 +6,8 @@ public static class LogManager
 {
     private static volatile LogConfig? _config;
     private static int _initialized;
+    private static Action<Exception>? _exceptionHandler;
+    private static int _exceptionsCaptured;
 
     public static void Initialize(Action<LogConfigBuilder> configure)
     {
@@ -102,6 +104,60 @@ public static class LogManager
         }
     }
 
+    public static void CaptureUnhandledExceptions(Action<Exception> handler, bool observeTaskExceptions = false)
+    {
+        if (Interlocked.CompareExchange(ref _exceptionsCaptured, 1, 0) != 0)
+            return;
+
+        Volatile.Write(ref _exceptionHandler, handler);
+
+        AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+
+        if (observeTaskExceptions)
+            TaskScheduler.UnobservedTaskException += OnUnobservedTaskExceptionObserve;
+        else
+            TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+    }
+
+    public static void StopCapturingUnhandledExceptions()
+    {
+        if (Interlocked.CompareExchange(ref _exceptionsCaptured, 0, 1) != 1)
+            return;
+
+        AppDomain.CurrentDomain.UnhandledException -= OnUnhandledException;
+        TaskScheduler.UnobservedTaskException -= OnUnobservedTaskException;
+        TaskScheduler.UnobservedTaskException -= OnUnobservedTaskExceptionObserve;
+        Volatile.Write(ref _exceptionHandler, null);
+    }
+
+    private static void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        var handler = Volatile.Read(ref _exceptionHandler);
+        if (handler is null) return;
+
+        if (e.ExceptionObject is Exception ex)
+        {
+            try { handler(ex); } catch { }
+        }
+    }
+
+    private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        var handler = Volatile.Read(ref _exceptionHandler);
+        if (handler is null) return;
+
+        try { handler(e.Exception); } catch { }
+    }
+
+    private static void OnUnobservedTaskExceptionObserve(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        var handler = Volatile.Read(ref _exceptionHandler);
+        if (handler is null) return;
+
+        try { handler(e.Exception); } catch { }
+        e.SetObserved();
+    }
+
     internal static void SetMinimumLevel(LogLevel level)
     {
         var current = _config;
@@ -123,6 +179,7 @@ public static class LogManager
     // For testing: reset state so Initialize can be called again.
     internal static void Reset()
     {
+        StopCapturingUnhandledExceptions();
         var old = _config;
         _config = null;
         Interlocked.Exchange(ref _initialized, 0);
