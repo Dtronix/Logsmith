@@ -33,7 +33,7 @@ internal static class MethodEmitter
 
         // Emit CategoryName constant
         var category = methods[0].Category;
-        sb.AppendLine($"    public const string CategoryName = \"{EscapeString(category)}\";");
+        innerSb.AppendLine($"    public const string CategoryName = \"{EscapeString(category)}\";");
 
         for (int i = 0; i < methods.Count; i++)
         {
