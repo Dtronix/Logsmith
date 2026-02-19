@@ -1,5 +1,6 @@
 using System.Buffers;
 using Logsmith.Formatting;
+using Logsmith.Internal;
 
 namespace Logsmith.Sinks;
 
@@ -20,17 +21,17 @@ public class StreamSink : BufferedLogSink
 
     protected override async Task WriteBufferedAsync(BufferedEntry entry, CancellationToken ct)
     {
-        var logEntry = new LogEntry(
-            entry.Level, entry.EventId, entry.TimestampTicks, entry.Category,
-            entry.Exception, entry.CallerFile, entry.CallerLine, entry.CallerMember,
-            entry.ThreadId, entry.ThreadName);
+        var logEntry = entry.Entry;
+        var utf8Message = entry.Utf8MessageBuffer.AsSpan(0, entry.Utf8MessageLength);
 
-        var buffer = new ArrayBufferWriter<byte>(256);
-        _formatter.FormatPrefix(in logEntry, buffer);
-        buffer.Write(entry.Utf8Message);
-        _formatter.FormatSuffix(in logEntry, buffer);
+        var buf = ThreadBuffer.Get();
+        _formatter.FormatPrefix(in logEntry, buf);
+        buf.Write(utf8Message);
+        _formatter.FormatSuffix(in logEntry, buf);
 
-        await _stream.WriteAsync(buffer.WrittenMemory, ct);
+        var formatted = buf.WrittenMemory.ToArray();
+
+        await _stream.WriteAsync(formatted, ct);
         await _stream.FlushAsync(ct);
     }
 
