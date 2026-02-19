@@ -692,6 +692,54 @@ public class SyntaxExtractionTests
     }
 
     [Test]
+    public void NestedStruct_EmitsStructKeyword()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public partial struct Outer
+            {
+                public static partial class Log
+                {
+                    [LogMessage(LogLevel.Information, "Hello")]
+                    static partial void Greet();
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Outer.Log");
+        Assert.That(generated, Does.Contain("public partial struct Outer"));
+        Assert.That(generated, Does.Contain("public static partial class Log"));
+    }
+
+    [Test]
+    public void NestedStruct_CompilationSucceeds()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public partial struct Outer
+            {
+                public static partial class Log
+                {
+                    [LogMessage(LogLevel.Information, "Hello {name}")]
+                    public static partial void Greet(string name);
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var (result, diagnostics) = GeneratorTestHelper.RunGeneratorWithDiagnostics(compilation);
+
+        var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+        Assert.That(errors, Is.Empty,
+            $"Struct nesting compilation should succeed. Errors: {string.Join("\n", errors.Select(e => e.ToString()))}");
+    }
+
+    [Test]
     public void NestedClass_CategoryFromInnerClass()
     {
         var source = """

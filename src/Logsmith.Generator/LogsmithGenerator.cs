@@ -302,6 +302,7 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
             ct.ThrowIfCancellationRequested();
 
             string? modifiers = null;
+            string keyword = "class";
             bool isPartial = false;
 
             foreach (var syntaxRef in current.DeclaringSyntaxReferences)
@@ -326,6 +327,15 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
                             }
                         }
                         modifiers = mods.Count > 0 ? string.Join(" ", mods) + " " : "";
+
+                        // Capture type keyword (class, struct, record class, record struct)
+                        keyword = typeDecl.Keyword.Text;
+                        if (typeDecl is RecordDeclarationSyntax recordDecl &&
+                            recordDecl.ClassOrStructKeyword != default)
+                        {
+                            keyword = $"record {recordDecl.ClassOrStructKeyword.Text}";
+                        }
+
                         break;
                     }
                 }
@@ -334,11 +344,11 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
             if (!isPartial)
             {
                 // Signal non-partial with null modifiers
-                chain.Add(new ContainingTypeInfo(current.Name, null!));
+                chain.Add(new ContainingTypeInfo(current.Name, null!, keyword));
             }
             else
             {
-                chain.Add(new ContainingTypeInfo(current.Name, modifiers!));
+                chain.Add(new ContainingTypeInfo(current.Name, modifiers!, keyword));
             }
 
             current = current.ContainingType;
