@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ['**']
+    branches: [master]
     tags: ['v*']
   pull_request:
 
@@ -37,14 +37,14 @@ jobs:
           fi
 
       - name: Build
-        run: dotnet build SouceGeneratorLogging.slnx -c Release
+        run: dotnet build Logsmith.slnx -c Release
 
       - name: Test
-        run: dotnet test SouceGeneratorLogging.slnx -c Release --no-build
+        run: dotnet test Logsmith.slnx -c Release --no-build
 
       - name: Pack
         run: >-
-          dotnet pack SouceGeneratorLogging.slnx
+          dotnet pack Logsmith.slnx
           -c Release
           --no-build
           -p:IncludeSymbols=true
