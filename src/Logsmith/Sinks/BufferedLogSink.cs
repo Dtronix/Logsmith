@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Threading.Channels;
 
 namespace Logsmith.Sinks;
@@ -5,17 +6,9 @@ namespace Logsmith.Sinks;
 public abstract class BufferedLogSink : ILogSink, IAsyncDisposable
 {
     protected readonly record struct BufferedEntry(
-        LogLevel Level,
-        int EventId,
-        long TimestampTicks,
-        string Category,
-        Exception? Exception,
-        string? CallerFile,
-        int CallerLine,
-        string? CallerMember,
-        int ThreadId,
-        string? ThreadName,
-        byte[] Utf8Message);
+        LogEntry Entry,
+        byte[] Utf8MessageBuffer,
+        int Utf8MessageLength);
 
     protected LogLevel MinimumLevel { get; }
 
@@ -39,21 +32,12 @@ public abstract class BufferedLogSink : ILogSink, IAsyncDisposable
 
     public void Write(in LogEntry entry, ReadOnlySpan<byte> utf8Message)
     {
-        var messageCopy = utf8Message.ToArray();
-        var buffered = new BufferedEntry(
-            entry.Level,
-            entry.EventId,
-            entry.TimestampTicks,
-            entry.Category,
-            entry.Exception,
-            entry.CallerFile,
-            entry.CallerLine,
-            entry.CallerMember,
-            entry.ThreadId,
-            entry.ThreadName,
-            messageCopy);
+        var rented = ArrayPool<byte>.Shared.Rent(utf8Message.Length);
+        utf8Message.CopyTo(rented);
+        var buffered = new BufferedEntry(entry, rented, utf8Message.Length);
 
-        _channel.Writer.TryWrite(buffered);
+        if (!_channel.Writer.TryWrite(buffered))
+            ArrayPool<byte>.Shared.Return(rented);
     }
 
     protected abstract Task WriteBufferedAsync(BufferedEntry entry, CancellationToken ct);
@@ -64,7 +48,14 @@ public abstract class BufferedLogSink : ILogSink, IAsyncDisposable
         {
             await foreach (var entry in _channel.Reader.ReadAllAsync(_cts.Token))
             {
-                await WriteBufferedAsync(entry, _cts.Token);
+                try
+                {
+                    await WriteBufferedAsync(entry, _cts.Token);
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(entry.Utf8MessageBuffer);
+                }
             }
         }
         catch (OperationCanceledException) { }
