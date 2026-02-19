@@ -1,5 +1,6 @@
 using System.Buffers;
 using Logsmith.Formatting;
+using Logsmith.Internal;
 
 namespace Logsmith.Sinks;
 
@@ -40,28 +41,26 @@ public class FileSink : BufferedLogSink
         if (_fileStream is null)
             EnsureFileOpen();
 
-        var logEntry = new LogEntry(
-            entry.Level, entry.EventId, entry.TimestampTicks, entry.Category,
-            entry.Exception, entry.CallerFile, entry.CallerLine, entry.CallerMember,
-            entry.ThreadId, entry.ThreadName);
+        var logEntry = entry.Entry;
+        var utf8Message = entry.Utf8MessageBuffer.AsMemory(0, entry.Utf8MessageLength);
 
-        var buffer = new ArrayBufferWriter<byte>(256);
-        _formatter.FormatPrefix(in logEntry, buffer);
-        var prefixBytes = buffer.WrittenMemory;
+        var buf = ThreadBuffer.Get();
+        _formatter.FormatPrefix(in logEntry, buf);
+        var prefixBytes = buf.WrittenMemory.ToArray();
 
-        var suffixBuffer = new ArrayBufferWriter<byte>(64);
-        _formatter.FormatSuffix(in logEntry, suffixBuffer);
-        var suffixBytes = suffixBuffer.WrittenMemory;
+        buf.ResetWrittenCount();
+        _formatter.FormatSuffix(in logEntry, buf);
+        var suffixBytes = buf.WrittenMemory.ToArray();
 
-        var totalBytes = prefixBytes.Length + entry.Utf8Message.Length + suffixBytes.Length;
+        var totalBytes = prefixBytes.Length + utf8Message.Length + suffixBytes.Length;
 
         if (_shared)
         {
-            WriteSharedLocked(entry, prefixBytes, suffixBytes, totalBytes);
+            WriteSharedLocked(utf8Message.Span, prefixBytes, suffixBytes, totalBytes, entry);
             return Task.CompletedTask;
         }
 
-        return WriteNonSharedAsync(entry, prefixBytes, suffixBytes, totalBytes, ct);
+        return WriteNonSharedAsync(utf8Message, prefixBytes, suffixBytes, totalBytes, entry, ct);
     }
 
     /// <summary>
@@ -70,8 +69,8 @@ public class FileSink : BufferedLogSink
     /// may resume on a different thread, causing ReleaseMutex to throw.
     /// This runs on the dedicated drain thread so blocking is acceptable.
     /// </summary>
-    private void WriteSharedLocked(BufferedEntry entry, ReadOnlyMemory<byte> prefixBytes,
-        ReadOnlyMemory<byte> suffixBytes, int totalBytes)
+    private void WriteSharedLocked(ReadOnlySpan<byte> utf8Message, byte[] prefixBytes,
+        byte[] suffixBytes, int totalBytes, BufferedEntry entry)
     {
         AcquireFileMutex();
         try
@@ -83,7 +82,7 @@ public class FileSink : BufferedLogSink
             // Time-based roll check
             if (_rollingInterval != RollingInterval.None)
             {
-                var entryTime = new DateTime(entry.TimestampTicks, DateTimeKind.Utc);
+                var entryTime = new DateTime(entry.Entry.TimestampTicks, DateTimeKind.Utc);
                 var entryPeriod = GetPeriodStart(entryTime, _rollingInterval);
                 if (entryPeriod > _currentPeriodStart)
                 {
@@ -100,9 +99,9 @@ public class FileSink : BufferedLogSink
                 RollFileSync(GetSizeRolledName());
             }
 
-            _fileStream!.Write(prefixBytes.Span);
-            _fileStream.Write(entry.Utf8Message);
-            _fileStream.Write(suffixBytes.Span);
+            _fileStream!.Write(prefixBytes);
+            _fileStream.Write(utf8Message);
+            _fileStream.Write(suffixBytes);
             _fileStream.Flush();
             _currentSize += totalBytes;
         }
@@ -112,13 +111,13 @@ public class FileSink : BufferedLogSink
         }
     }
 
-    private async Task WriteNonSharedAsync(BufferedEntry entry, ReadOnlyMemory<byte> prefixBytes,
-        ReadOnlyMemory<byte> suffixBytes, int totalBytes, CancellationToken ct)
+    private async Task WriteNonSharedAsync(ReadOnlyMemory<byte> utf8Message, byte[] prefixBytes,
+        byte[] suffixBytes, int totalBytes, BufferedEntry entry, CancellationToken ct)
     {
         // Time-based roll check
         if (_rollingInterval != RollingInterval.None)
         {
-            var entryTime = new DateTime(entry.TimestampTicks, DateTimeKind.Utc);
+            var entryTime = new DateTime(entry.Entry.TimestampTicks, DateTimeKind.Utc);
             var entryPeriod = GetPeriodStart(entryTime, _rollingInterval);
             if (entryPeriod > _currentPeriodStart)
             {
@@ -136,7 +135,7 @@ public class FileSink : BufferedLogSink
         }
 
         await _fileStream!.WriteAsync(prefixBytes, ct);
-        await _fileStream.WriteAsync(entry.Utf8Message, ct);
+        await _fileStream.WriteAsync(utf8Message, ct);
         await _fileStream.WriteAsync(suffixBytes, ct);
         await _fileStream.FlushAsync(ct);
         _currentSize += totalBytes;
