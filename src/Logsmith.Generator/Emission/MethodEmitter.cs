@@ -14,7 +14,7 @@ internal static class MethodEmitter
 
     internal static string EmitClassFile(
         string namespaceName,
-        string className,
+        IReadOnlyList<ContainingTypeInfo> typeChain,
         IReadOnlyList<LogMethodInfo> methods)
     {
         var sb = new StringBuilder();
@@ -28,13 +28,13 @@ internal static class MethodEmitter
             sb.AppendLine();
         }
 
-        sb.AppendLine($"partial class {className}");
-        sb.AppendLine("{");
+        // Emit inner content at zero indent, then re-indent for nesting depth
+        var innerSb = new StringBuilder();
 
         for (int i = 0; i < methods.Count; i++)
         {
-            if (i > 0) sb.AppendLine();
-            sb.Append(EmitMethodBody(methods[i]));
+            if (i > 0) innerSb.AppendLine();
+            innerSb.Append(EmitMethodBody(methods[i]));
         }
 
         // Emit state structs for methods with structured dispatch
@@ -45,8 +45,8 @@ internal static class MethodEmitter
                 var stateStruct = EmitStateStruct(method);
                 if (!string.IsNullOrEmpty(stateStruct))
                 {
-                    sb.AppendLine();
-                    sb.Append(stateStruct);
+                    innerSb.AppendLine();
+                    innerSb.Append(stateStruct);
                 }
             }
         }
@@ -59,13 +59,53 @@ internal static class MethodEmitter
                 var writeProps = StructuredPathEmitter.EmitWritePropertiesMethod(method);
                 if (!string.IsNullOrEmpty(writeProps))
                 {
-                    sb.AppendLine();
-                    sb.Append(writeProps);
+                    innerSb.AppendLine();
+                    innerSb.Append(writeProps);
                 }
             }
         }
 
-        sb.AppendLine("}");
+        // Calculate base indent for innermost class content
+        // Outer classes add indent; the innermost class body content gets (chainLength - 1) * 4 extra spaces
+        int extraIndent = (typeChain.Count - 1) * 4;
+        string extraIndentStr = extraIndent > 0 ? new string(' ', extraIndent) : "";
+
+        // Open nesting wrappers (outermost first)
+        for (int i = 0; i < typeChain.Count; i++)
+        {
+            string indent = i > 0 ? new string(' ', i * 4) : "";
+            sb.AppendLine($"{indent}{typeChain[i].Modifiers}partial class {typeChain[i].Name}");
+            sb.AppendLine($"{indent}{{");
+        }
+
+        // Re-indent inner content
+        string innerContent = innerSb.ToString();
+        if (extraIndent > 0)
+        {
+            var lines = innerContent.Split('\n');
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i];
+                // Preserve empty lines as-is (may have trailing \r)
+                string trimmed = line.TrimEnd('\r');
+                if (trimmed.Length == 0)
+                    sb.AppendLine();
+                else
+                    sb.AppendLine(extraIndentStr + trimmed);
+            }
+        }
+        else
+        {
+            sb.Append(innerContent);
+        }
+
+        // Close nesting wrappers (innermost first)
+        for (int i = typeChain.Count - 1; i >= 0; i--)
+        {
+            string indent = i > 0 ? new string(' ', i * 4) : "";
+            sb.AppendLine($"{indent}}}");
+        }
+
         return sb.ToString();
     }
 
