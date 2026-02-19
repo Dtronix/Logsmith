@@ -237,14 +237,16 @@ Requirements:
 
 ### Categories
 
-The `[LogCategory]` attribute sets the category string attached to every log entry from that class. If omitted, the class name is used.
+The `[LogCategory]` attribute sets the category string attached to every log entry from that class. If omitted, the class name is used. The generator emits a `public const string CategoryName` field on each log class, which can be used for type-safe per-category configuration via `SetMinimumLevel<T>()`.
 
 ```csharp
 [LogCategory("Audio")]
 public static partial class AudioLog { ... }
+// Generated: public const string CategoryName = "Audio";
 
 // No attribute: category defaults to "PhysicsLog"
 public static partial class PhysicsLog { ... }
+// Generated: public const string CategoryName = "PhysicsLog";
 ```
 
 ---
@@ -311,15 +313,18 @@ public enum LogLevel : byte
 if (level < _config.MinimumLevel) return;
 ```
 
-Per-category overrides are supported:
+Per-category overrides are supported. You can use a magic string or the type-safe generic overload, which reads the `CategoryName` constant emitted by the generator on each log class:
 
 ```csharp
-Log.Initialize(config =>
+LogManager.Initialize(config =>
 {
     config.MinimumLevel = LogLevel.Information;
-    config.SetMinimumLevel("Renderer", LogLevel.Debug);
+    config.SetMinimumLevel("Renderer", LogLevel.Debug);         // by string
+    config.SetMinimumLevel<RenderLog>(LogLevel.Debug);          // by type (recommended)
 });
 ```
+
+The generic overload resolves the category from the generated `public const string CategoryName` field. If the type has a `[LogCategory]` attribute, the constant reflects that name; otherwise it defaults to the class name.
 
 ### Compile-time stripping
 
@@ -836,8 +841,8 @@ Log.Initialize(config =>
     config.MinimumLevel = LogLevel.Debug;
 
     // Per-category minimum level override
-    config.SetMinimumLevel("Renderer", LogLevel.Trace);
-    config.SetMinimumLevel("Network", LogLevel.Warning);
+    config.SetMinimumLevel("Renderer", LogLevel.Trace);         // by string
+    config.SetMinimumLevel<NetworkLog>(LogLevel.Warning);       // by type (recommended)
 
     // Internal error handler for sink exceptions
     config.InternalErrorHandler = ex => Console.Error.WriteLine($"Logging error: {ex}");
@@ -892,7 +897,8 @@ The `Logsmith.Generator` NuGet package contains only the source generator in `an
 
 For each `[LogMessage]`-decorated partial method, the generator emits:
 
-- A level-guard early return (`if (!LogManager.IsEnabled(level)) return`).
+- A `public const string CategoryName` field with the resolved category name.
+- A level-guard early return (`if (!LogManager.IsEnabled(level, category)) return`) with per-category filtering.
 - Stack-allocated UTF8 buffer and `Utf8LogWriter` construction.
 - Alternating literal UTF8 writes and typed `WriteFormatted` calls for each template segment.
 - A `LogEntry` construction with compile-time constants for category, event ID, and source location.
