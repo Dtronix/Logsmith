@@ -23,6 +23,11 @@ Logsmith is a logging framework where the source generator *is* the framework. E
 - [Log Formatting](#log-formatting)
 - [Format Specifiers](#format-specifiers)
 - [Structured Output](#structured-output)
+- [Scoped Context](#scoped-context)
+- [Log Sampling and Rate Limiting](#log-sampling-and-rate-limiting)
+- [Dynamic Level Switching](#dynamic-level-switching)
+- [Global Exception Handler](#global-exception-handler)
+- [Microsoft.Extensions.Logging Bridge](#microsoftextensionslogging-bridge)
 - [Performance: `in` Parameters](#performance-in-parameters)
 - [Custom Type Serialization](#custom-type-serialization)
 - [Nullable Parameters](#nullable-parameters)
@@ -43,6 +48,7 @@ Logsmith is a logging framework where the source generator *is* the framework. E
 |------|-------|-------------|
 | [`Logsmith`](https://www.nuget.org/packages/Logsmith) | [![Logsmith](https://img.shields.io/nuget/v/Logsmith.svg?maxAge=60)](https://www.nuget.org/packages/Logsmith) | Runtime library with public types, sinks, and the bundled source generator. Use this when multiple projects share log definitions. |
 | [`Logsmith.Generator`](https://www.nuget.org/packages/Logsmith.Generator) | [![Logsmith.Generator](https://img.shields.io/nuget/v/Logsmith.Generator.svg?maxAge=60)](https://www.nuget.org/packages/Logsmith.Generator) | Source generator only. Emits all infrastructure as internal types with zero runtime dependency. |
+| [`Logsmith.Extensions.Logging`](https://www.nuget.org/packages/Logsmith.Extensions.Logging) | [![Logsmith.Extensions.Logging](https://img.shields.io/nuget/v/Logsmith.Extensions.Logging.svg?maxAge=60)](https://www.nuget.org/packages/Logsmith.Extensions.Logging) | Microsoft.Extensions.Logging bridge. Routes `ILogger` calls through Logsmith sinks. |
 
 ---
 
@@ -70,8 +76,8 @@ The generator reads your method declarations at build time. It knows the concret
 
 ## What Logsmith Is Not
 
-- **Not a replacement for `Microsoft.Extensions.Logging` in the ASP.NET Core ecosystem.** If your application depends on MEL-compatible sinks like Seq, Datadog, Application Insights, or OpenTelemetry collectors, those integrations expect MEL's `ILogger` interface. Logsmith defines its own `ILogSink` contract.
-- **Not a runtime-configurable logging framework.** Log levels can be changed at runtime, and sinks can be reconfigured, but message templates and parameter bindings are fixed at compile time. There is no runtime expression evaluator or dynamic template engine.
+- **Not a drop-in replacement for `Microsoft.Extensions.Logging`.** The optional `Logsmith.Extensions.Logging` bridge routes MEL `ILogger` calls through Logsmith sinks, but MEL-native sink packages (Seq, Datadog, Application Insights, OpenTelemetry) expect MEL's `ILoggerProvider` ecosystem. Logsmith defines its own `ILogSink` contract for native sinks.
+- **Not a runtime-configurable logging framework.** Log levels can be changed at runtime (including via environment variable polling and config file watching), and sinks can be reconfigured, but message templates and parameter bindings are fixed at compile time. There is no runtime expression evaluator or dynamic template engine.
 
 ---
 
@@ -88,9 +94,12 @@ The generator reads your method declarations at build time. It knows the concret
 | No boxing of value types | Yes | Yes (generated path) | Yes | No (object[] params) | No (object[] params) |
 | No reflection | Yes | Yes | Partial | No (used in enrichers) | No (used in layouts) |
 | NativeAOT compatible | Yes | Yes | Yes | Partial | Partial |
-| Compile-time diagnostics | Yes (LSMITH001-006) | Yes | Limited | No | No |
+| Compile-time diagnostics | Yes (LSMITH001-007) | Yes | Limited | No | No |
+| Log sampling / rate limiting | Yes (compile-time) | No | No | No | No |
+| Scoped context (AsyncLocal) | Yes (LogScope) | Yes (ILogger.BeginScope) | Yes | Yes (LogContext) | Yes (ScopeContext) |
+| Dynamic level switching | Yes (env var, file) | Yes (IOptionsMonitor) | Yes | Yes (LoggingLevelSwitch) | Yes (config reload) |
 | Custom type serialization | ILogStructurable | ILogger.BeginScope | IZLoggerFormattable | Destructure policies | Custom layout renderers |
-| MEL ecosystem compatibility | No | Native | Native | Via Serilog.Extensions.Logging | Via NLog.Extensions.Logging |
+| MEL ecosystem compatibility | Yes (bridge package) | Native | Native | Via Serilog.Extensions.Logging | Via NLog.Extensions.Logging |
 | DI container required | No | Typically yes | Typically yes | No | No |
 | Transitive dependencies | Zero (standalone) | MEL abstractions | MEL + ZLogger | Serilog + sinks | NLog |
 
@@ -129,6 +138,26 @@ All sinks accept an `ILogFormatter` for customizing log line prefixes and suffix
 ### Format Specifiers in Templates
 
 Message templates support standard .NET format strings (`{value:F2}`) and JSON serialization (`{obj:json}`). Format specifiers are parsed at compile time and emitted as static code — no runtime template parsing.
+
+### Scoped Context Enrichment
+
+`LogScope` provides `AsyncLocal`-based ambient property stacking. Push key-value properties onto the scope, and they automatically appear on every log entry within that scope — including across `async`/`await` boundaries. Scopes are shared between direct Logsmith calls and MEL bridge calls.
+
+### Log Sampling and Rate Limiting
+
+Compile-time attributes on `[LogMessage]` cause the generator to emit lightweight counter-based guards. `SampleRate = N` emits 1-in-N messages. `MaxPerSecond = N` caps per-second throughput. Both use lock-free `Interlocked` operations with zero runtime cost when not configured.
+
+### Dynamic Level Switching
+
+Opt-in monitors for adjusting log levels at runtime without full reconfiguration. `WatchEnvironmentVariable` polls an env var on a timer. `WatchConfigFile` watches a JSON file with debounced reload. Both swap the config lock-free.
+
+### Global Exception Handler
+
+`CaptureUnhandledExceptions` wires `AppDomain.UnhandledException` and `TaskScheduler.UnobservedTaskException` to a user-provided callback with opt-in `SetObserved()` support.
+
+### Microsoft.Extensions.Logging Bridge
+
+The `Logsmith.Extensions.Logging` package provides `ILoggerProvider` and `ILogger` implementations that route MEL log calls through Logsmith sinks. `BeginScope` delegates to `LogScope`, so scopes are shared between MEL and direct Logsmith usage.
 
 ### Internal Error Handling
 
@@ -531,6 +560,253 @@ The property names are UTF8 string literals derived from the parameter names at 
 
 ---
 
+## Scoped Context
+
+`LogScope` provides ambient key-value properties that attach to every log entry within a scope. Scopes use `AsyncLocal<T>` and propagate through `async`/`await` boundaries.
+
+### Basic usage
+
+```csharp
+using (LogScope.Push("RequestId", "req-abc-123"))
+{
+    Log.ProcessingOrder("ORD-001", "Alice");
+    // Text output: "Processing order ORD-001 for Alice [RequestId=req-abc-123]"
+}
+// Outside the scope — no enrichment
+Log.ProcessingOrder("ORD-002", "Bob");
+// Text output: "Processing order ORD-002 for Bob"
+```
+
+### Nested scopes
+
+Scopes nest naturally. Inner properties appear alongside outer properties:
+
+```csharp
+using (LogScope.Push("RequestId", "req-abc-123"))
+{
+    using (LogScope.Push("UserId", "user-42"))
+    {
+        Log.ProcessingOrder("ORD-001", "Alice");
+        // Text output: "Processing order ORD-001 for Alice [UserId=user-42] [RequestId=req-abc-123]"
+    }
+}
+```
+
+### Multi-property push
+
+Push multiple properties in a single call:
+
+```csharp
+var props = new KeyValuePair<string, string>[]
+{
+    new("RequestId", "req-abc-123"),
+    new("TenantId", "tenant-7"),
+};
+using (LogScope.Push(props))
+{
+    Log.SomeMethod();
+}
+```
+
+### Structured sinks
+
+Scope properties are available to structured sinks via `LogScope.WriteToJson(Utf8JsonWriter)`, which writes each property as a JSON string property.
+
+### Performance
+
+Scope enrichment has zero overhead on the dispatch hot path when no scopes are active. When scopes are active, a 512-byte `stackalloc` buffer is used to build the enriched message — no heap allocation.
+
+---
+
+## Log Sampling and Rate Limiting
+
+High-frequency log methods can be throttled at compile time using attributes on `[LogMessage]`. The generator emits lightweight guards that execute before any formatting or dispatch work.
+
+### Sampling
+
+`SampleRate = N` emits every Nth log call. Uses a single `Interlocked.Increment` and modulo check:
+
+```csharp
+// Only 1 in 10 heartbeat messages will be emitted
+[LogMessage(LogLevel.Debug, "Heartbeat", SampleRate = 10)]
+public static partial void Heartbeat();
+```
+
+The counter wraps naturally on `int` overflow. No lock, no allocation.
+
+### Rate limiting
+
+`MaxPerSecond = N` caps throughput to N messages per second using a per-second time window:
+
+```csharp
+// At most 100 messages per second
+[LogMessage(LogLevel.Warning, "Request throttled", MaxPerSecond = 100)]
+public static partial void RequestThrottled();
+```
+
+Window reset is a benign race — a few extra messages may slip through at the boundary. This is a logging rate limiter, not a security rate limiter.
+
+### Combining both
+
+When both are set, `SampleRate` is applied first:
+
+```csharp
+[LogMessage(LogLevel.Debug, "Tick", SampleRate = 5, MaxPerSecond = 50)]
+public static partial void Tick();
+```
+
+The generator emits `LSMITH007` as a warning when both are set on the same method.
+
+### Generated code
+
+No guards are emitted when `SampleRate` is 0 or 1 and `MaxPerSecond` is 0. When active, the generator emits static counter fields and guard code at the top of the method body, after the `IsEnabled` check.
+
+---
+
+## Dynamic Level Switching
+
+Two opt-in mechanisms for adjusting log levels at runtime without calling `Reconfigure`.
+
+### Environment variable polling
+
+```csharp
+LogManager.Initialize(config =>
+{
+    config.MinimumLevel = LogLevel.Debug;
+    config.AddConsoleSink();
+    config.WatchEnvironmentVariable("MY_LOG_LEVEL", pollInterval: TimeSpan.FromSeconds(5));
+});
+```
+
+The monitor reads the environment variable on each poll tick and calls `Enum.TryParse<LogLevel>`. If the value changed, the minimum level is updated lock-free. Default poll interval is 5 seconds.
+
+### Config file watching
+
+```csharp
+LogManager.Initialize(config =>
+{
+    config.MinimumLevel = LogLevel.Debug;
+    config.AddConsoleSink();
+    config.WatchConfigFile("logsmith.json");
+});
+```
+
+The monitor uses `FileSystemWatcher` with a 500ms debounce. The JSON format:
+
+```json
+{
+    "MinimumLevel": "Warning",
+    "CategoryOverrides": {
+        "Noisy": "Error",
+        "Network": "Debug"
+    }
+}
+```
+
+Both `MinimumLevel` and `CategoryOverrides` are optional. Parse errors are silently ignored (the file may be partially written).
+
+### Lifecycle
+
+Monitors are created during `Build()` and stored in the config. When `Reconfigure` replaces the config, old monitors are disposed. `Reset()` also disposes monitors for test isolation.
+
+---
+
+## Global Exception Handler
+
+Explicit opt-in for capturing unhandled and unobserved task exceptions.
+
+```csharp
+LogManager.CaptureUnhandledExceptions(ex =>
+{
+    Log.UnhandledException(ex);
+});
+```
+
+This wires:
+- `AppDomain.CurrentDomain.UnhandledException` — captures unhandled exceptions on any thread.
+- `TaskScheduler.UnobservedTaskException` — captures exceptions from unawaited tasks.
+
+The handler runs inside a `try/catch` — a failing handler cannot crash the process.
+
+### Observing task exceptions
+
+By default, unobserved task exceptions are logged but not observed. To also call `SetObserved()` (preventing process termination in certain configurations):
+
+```csharp
+LogManager.CaptureUnhandledExceptions(ex =>
+{
+    Log.UnhandledException(ex);
+}, observeTaskExceptions: true);
+```
+
+### Stopping capture
+
+```csharp
+LogManager.StopCapturingUnhandledExceptions();
+```
+
+`Reset()` calls this automatically for test isolation.
+
+---
+
+## Microsoft.Extensions.Logging Bridge
+
+The `Logsmith.Extensions.Logging` package routes `ILogger` calls through Logsmith sinks. This enables Logsmith as the backend for libraries and frameworks that log through MEL.
+
+### Installation
+
+```xml
+<PackageReference Include="Logsmith" Version="1.0.0" />
+<PackageReference Include="Logsmith.Extensions.Logging" Version="1.0.0" />
+```
+
+### Registration
+
+```csharp
+using Logsmith.Extensions.Logging;
+
+// Initialize Logsmith sinks
+LogManager.Initialize(config =>
+{
+    config.MinimumLevel = LogLevel.Debug;
+    config.AddConsoleSink();
+});
+
+// Register as MEL provider
+var services = new ServiceCollection();
+services.AddLogging(builder =>
+{
+    builder.AddLogsmith();
+});
+```
+
+### Level mapping
+
+MEL log levels map 1:1 to Logsmith levels — both enums use Trace=0 through Critical=5, None=6.
+
+### Scope integration
+
+MEL's `ILogger.BeginScope` delegates to `LogScope.Push`. Scopes are shared between MEL and direct Logsmith usage:
+
+```csharp
+// MEL scope
+using (melLogger.BeginScope(new Dictionary<string, object> { ["CorrelationId"] = "corr-xyz" }))
+{
+    melLogger.LogInformation("From MEL");
+    // Direct Logsmith call also sees the scope
+    Log.ProcessingOrder("ORD-001", "Alice");
+    // Both outputs include [CorrelationId=corr-xyz]
+}
+```
+
+String-typed `BeginScope` states are stored as `[Scope=value]`.
+
+### Category handling
+
+`ILoggerFactory.CreateLogger(categoryName)` maps the category directly to the Logsmith `LogEntry.Category` field. Per-category minimum levels configured via `SetMinimumLevel` apply to MEL loggers.
+
+---
+
 ## Performance: `in` Parameters
 
 For large value types, use the `in` modifier to pass by reference and avoid copying. The generator preserves `in` through the entire pipeline: method signature, state struct constructor, and state construction.
@@ -711,6 +987,7 @@ The generator produces the following diagnostics:
 | LSMITH004 | Error | Parameter type does not implement `IUtf8SpanFormattable`, `ISpanFormattable`, `IFormattable`, or `ToString()`. |
 | LSMITH005 | Warning | Parameter has a `[Caller*]` attribute and also appears in the message template. Caller attribute takes priority. |
 | LSMITH006 | Warning | `:json` format specifier on primitive type is unnecessary — prefer default formatting. |
+| LSMITH007 | Warning | Both `SampleRate` and `MaxPerSecond` are set on the same method. `SampleRate` is applied first. |
 
 ---
 
@@ -858,6 +1135,11 @@ Log.Initialize(config =>
     config.AddStreamSink(networkStream, leaveOpen: true);
     config.AddDebugSink();
     config.AddSink(new CustomSink());
+
+    // Dynamic level switching (optional)
+    config.WatchEnvironmentVariable("MY_LOG_LEVEL");
+    config.WatchEnvironmentVariable("MY_LOG_LEVEL", pollInterval: TimeSpan.FromSeconds(10));
+    config.WatchConfigFile("logsmith.json");
 });
 ```
 
@@ -872,7 +1154,17 @@ LogManager.Reconfigure(config =>
 });
 ```
 
-The configuration object is immutable. Reconfiguration builds a new config and swaps it atomically via a volatile write. The hot path reads the config through a single volatile read with no locking.
+The configuration object is immutable. Reconfiguration builds a new config and swaps it atomically via a volatile write. The hot path reads the config through a single volatile read with no locking. Active monitors from the previous config are disposed.
+
+### Global exception handler
+
+```csharp
+LogManager.CaptureUnhandledExceptions(
+    handler: ex => Log.UnhandledException(ex),
+    observeTaskExceptions: false);   // true to call SetObserved()
+
+LogManager.StopCapturingUnhandledExceptions();
+```
 
 ### MSBuild properties
 
@@ -924,6 +1216,8 @@ Classification is by attribute and type, not by parameter position. Parameters o
 
 - **Hot path (logging enabled):** One volatile read (config), one enum comparison (level), stack-allocated buffer, direct UTF8 writes, no heap allocation for value-type parameters.
 - **Hot path (logging disabled):** One volatile read, one enum comparison, return. No buffer allocation, no argument formatting.
+- **Hot path (with scopes):** One additional null check on `LogScope.Current`. When scopes are active, a 512-byte stack buffer copy for enrichment. When inactive, zero overhead.
+- **Hot path (with sampling):** One `Interlocked.Increment` + modulo check. When rate limiting is active, one additional `Volatile.Read` + `Interlocked` pair per call.
 - **Conditional-stripped methods:** Zero cost. Call site does not exist in the compiled IL. Arguments are not evaluated.
 - **Config swap:** Single volatile write. No lock contention. Subsequent reads on any thread see the new config.
 

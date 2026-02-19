@@ -51,4 +51,12 @@ internal static class DiagnosticDescriptors
         category: "Logsmith",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
+
+    internal static readonly DiagnosticDescriptor LSMITH007 = new(
+        id: "LSMITH007",
+        title: "SampleRate and MaxPerSecond both set",
+        messageFormat: "Both SampleRate and MaxPerSecond are set on '{0}' — SampleRate is applied first",
+        category: "Logsmith",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
 }

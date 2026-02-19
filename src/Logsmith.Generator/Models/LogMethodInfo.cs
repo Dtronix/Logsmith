@@ -23,6 +23,8 @@ public sealed class LogMethodInfo
     public string ConditionalLevel { get; }
     public Location MethodLocation { get; }
     public string AccessModifier { get; }
+    public int SampleRate { get; }
+    public int MaxPerSecond { get; }
 
     public LogMethodInfo(
         string containingNamespace,
@@ -39,7 +41,9 @@ public sealed class LogMethodInfo
         bool isStandaloneMode,
         string conditionalLevel,
         Location methodLocation,
-        string accessModifier = "")
+        string accessModifier = "",
+        int sampleRate = 0,
+        int maxPerSecond = 0)
     {
         ContainingNamespace = containingNamespace;
         ContainingTypeChain = containingTypeChain;
@@ -56,5 +60,7 @@ public sealed class LogMethodInfo
         ConditionalLevel = conditionalLevel;
         MethodLocation = methodLocation;
         AccessModifier = accessModifier;
+        SampleRate = sampleRate;
+        MaxPerSecond = maxPerSecond;
     }
 }

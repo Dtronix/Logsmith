@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Logsmith.Tests" />
+    <InternalsVisibleTo Include="Logsmith.Extensions.Logging.Tests" />
     <InternalsVisibleTo Include="Logsmith.Benchmarks" />
   </ItemGroup>
 
