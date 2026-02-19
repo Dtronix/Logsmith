@@ -1,12 +1,13 @@
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Text;
-using System.Text.Unicode;
 
 namespace Logsmith.Formatting;
 
 public sealed class DefaultLogFormatter : ILogFormatter
 {
     private readonly bool _includeDate;
+    private readonly ConcurrentDictionary<string, byte[]> _categoryUtf8Cache = new();
 
     private static ReadOnlySpan<byte> TrcTag => "TRC"u8;
     private static ReadOnlySpan<byte> DbgTag => "DBG"u8;
@@ -53,9 +54,9 @@ public sealed class DefaultLogFormatter : ILogFormatter
         span[pos++] = (byte)' ';
 
         // Category
-        var categoryStatus = Utf8.FromUtf16(entry.Category, span[pos..], out _, out int categoryWritten);
-        if (categoryStatus == System.Buffers.OperationStatus.Done)
-            pos += categoryWritten;
+        var catBytes = _categoryUtf8Cache.GetOrAdd(entry.Category, static c => Encoding.UTF8.GetBytes(c));
+        catBytes.CopyTo(span[pos..]);
+        pos += catBytes.Length;
 
         span[pos++] = (byte)']';
         span[pos++] = (byte)' ';
@@ -73,13 +74,30 @@ public sealed class DefaultLogFormatter : ILogFormatter
         // Exception on next line if present
         if (entry.Exception is not null)
         {
-            var exStr = entry.Exception.ToString();
-            var exBytes = Encoding.UTF8.GetByteCount(exStr);
-            var exSpan = output.GetSpan(exBytes + 1);
-            int written = Encoding.UTF8.GetBytes(exStr, exSpan);
-            exSpan[written] = (byte)'\n';
-            output.Advance(written + 1);
+            WriteExceptionUtf8(entry.Exception, output);
         }
+    }
+
+    private static void WriteExceptionUtf8(Exception ex, IBufferWriter<byte> output)
+    {
+        var exStr = ex.ToString();
+        var chars = exStr.AsSpan();
+        var encoder = Encoding.UTF8.GetEncoder();
+
+        const int charChunkSize = 1024;
+        while (chars.Length > 0)
+        {
+            var chunk = chars.Length > charChunkSize ? chars[..charChunkSize] : chars;
+            var maxBytes = Encoding.UTF8.GetMaxByteCount(chunk.Length);
+            var span = output.GetSpan(maxBytes);
+            encoder.Convert(chunk, span, chunk.Length == chars.Length, out int charsUsed, out int bytesWritten, out _);
+            output.Advance(bytesWritten);
+            chars = chars[charsUsed..];
+        }
+
+        var nl = output.GetSpan(1);
+        nl[0] = (byte)'\n';
+        output.Advance(1);
     }
 
     private static ReadOnlySpan<byte> GetLevelTag(LogLevel level) => level switch
