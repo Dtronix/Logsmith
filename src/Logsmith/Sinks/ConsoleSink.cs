@@ -1,5 +1,6 @@
 using System.Buffers;
 using Logsmith.Formatting;
+using Logsmith.Internal;
 
 namespace Logsmith.Sinks;
 
@@ -21,30 +22,22 @@ public class ConsoleSink : TextLogSink
 
     protected override void WriteMessage(in LogEntry entry, ReadOnlySpan<byte> utf8Message)
     {
-        var buffer = new ArrayBufferWriter<byte>(256);
-        _formatter.FormatPrefix(in entry, buffer);
-        var prefixBytes = buffer.WrittenSpan;
-
-        buffer.ResetWrittenCount();
-        _formatter.FormatSuffix(in entry, buffer);
-        var suffixBytes = buffer.WrittenSpan;
+        var buf = ThreadBuffer.Get();
 
         if (_colored)
         {
             var colorCode = GetAnsiColor(entry.Level);
-            _stdout.Write(colorCode);
-            _stdout.Write(prefixBytes);
-            _stdout.Write(utf8Message);
-            _stdout.Write(suffixBytes);
-            _stdout.Write(ResetCode);
-        }
-        else
-        {
-            _stdout.Write(prefixBytes);
-            _stdout.Write(utf8Message);
-            _stdout.Write(suffixBytes);
+            buf.Write(colorCode);
         }
 
+        _formatter.FormatPrefix(in entry, buf);
+        buf.Write(utf8Message);
+        _formatter.FormatSuffix(in entry, buf);
+
+        if (_colored)
+            buf.Write(ResetCode);
+
+        _stdout.Write(buf.WrittenSpan);
         _stdout.Flush();
     }
 
