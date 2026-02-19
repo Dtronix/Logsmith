@@ -19,9 +19,11 @@ public static class LogManager
 
     public static void Reconfigure(Action<LogConfigBuilder> configure)
     {
+        var old = _config;
         var builder = new LogConfigBuilder();
         configure(builder);
         _config = builder.Build();
+        old?.DisposeMonitors();
     }
 
     public static bool IsEnabled(LogLevel level)
@@ -100,10 +102,30 @@ public static class LogManager
         }
     }
 
+    internal static void SetMinimumLevel(LogLevel level)
+    {
+        var current = _config;
+        if (current is null) return;
+
+        var newConfig = new LogConfig(level, current.CategoryOverrides.ToDictionary(), current.Sinks, current.ErrorHandler, current.Monitors);
+        _config = newConfig;
+    }
+
+    internal static void SetCategoryOverrides(Dictionary<string, LogLevel> overrides)
+    {
+        var current = _config;
+        if (current is null) return;
+
+        var newConfig = new LogConfig(current.MinimumLevel, overrides, current.Sinks, current.ErrorHandler, current.Monitors);
+        _config = newConfig;
+    }
+
     // For testing: reset state so Initialize can be called again.
     internal static void Reset()
     {
+        var old = _config;
         _config = null;
         Interlocked.Exchange(ref _initialized, 0);
+        old?.DisposeMonitors();
     }
 }
