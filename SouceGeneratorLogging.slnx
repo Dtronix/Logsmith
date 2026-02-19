@@ -15,5 +15,6 @@
   <Folder Name="/samples/">
     <Project Path="samples/Logsmith.Sample/Logsmith.Sample.Shared.csproj" />
     <Project Path="samples/Logsmith.Sample/Logsmith.Sample.Standalone.csproj" />
+    <Project Path="samples/Logsmith.Sample.MelBridge/Logsmith.Sample.MelBridge.csproj" />
   </Folder>
 </Solution>
