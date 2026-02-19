@@ -1,9 +1,11 @@
+using System.Collections.Frozen;
+
 namespace Logsmith.Internal;
 
 internal sealed class LogConfig
 {
     internal readonly LogLevel MinimumLevel;
-    internal readonly Dictionary<string, LogLevel> CategoryOverrides;
+    internal readonly FrozenDictionary<string, LogLevel> CategoryOverrides;
     internal readonly SinkSet Sinks;
     internal readonly Action<Exception>? ErrorHandler;
 
@@ -14,7 +16,7 @@ internal sealed class LogConfig
         Action<Exception>? errorHandler = null)
     {
         MinimumLevel = minimumLevel;
-        CategoryOverrides = categoryOverrides;
+        CategoryOverrides = categoryOverrides.ToFrozenDictionary();
         Sinks = sinks;
         ErrorHandler = errorHandler;
     }

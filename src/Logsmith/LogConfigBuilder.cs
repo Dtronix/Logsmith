@@ -67,6 +67,6 @@ public sealed class LogConfigBuilder
     internal LogConfig Build()
     {
         var sinkSet = SinkSet.Classify(_sinks);
-        return new LogConfig(MinimumLevel, new Dictionary<string, LogLevel>(_categoryOverrides), sinkSet, InternalErrorHandler);
+        return new LogConfig(MinimumLevel, _categoryOverrides, sinkSet, InternalErrorHandler);
     }
 }
