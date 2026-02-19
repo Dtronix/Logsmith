@@ -584,6 +584,174 @@ public class SyntaxExtractionTests
     }
 
     [Test]
+    public void ClassModifier_Protected_EmittedOnNestedPartialClass()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public partial class Outer
+            {
+                protected static partial class Log
+                {
+                    [LogMessage(LogLevel.Information, "Hello")]
+                    static partial void Greet();
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Outer.Log");
+        Assert.That(generated, Does.Contain("protected static partial class Log"));
+    }
+
+    [Test]
+    public void ClassModifier_Private_EmittedOnNestedPartialClass()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public partial class Outer
+            {
+                private static partial class Log
+                {
+                    [LogMessage(LogLevel.Information, "Hello")]
+                    static partial void Greet();
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Outer.Log");
+        Assert.That(generated, Does.Contain("private static partial class Log"));
+    }
+
+    [Test]
+    public void ClassModifier_ProtectedInternal_EmittedOnNestedPartialClass()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public partial class Outer
+            {
+                protected internal static partial class Log
+                {
+                    [LogMessage(LogLevel.Information, "Hello")]
+                    static partial void Greet();
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Outer.Log");
+        Assert.That(generated, Does.Contain("protected internal static partial class Log"));
+    }
+
+    [Test]
+    public void ClassModifier_PrivateProtected_EmittedOnNestedPartialClass()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public partial class Outer
+            {
+                private protected static partial class Log
+                {
+                    [LogMessage(LogLevel.Information, "Hello")]
+                    static partial void Greet();
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Outer.Log");
+        Assert.That(generated, Does.Contain("private protected static partial class Log"));
+    }
+
+    [Test]
+    public void ClassModifier_Sealed_EmittedOnPartialClass()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public partial class Outer
+            {
+                sealed partial class Log
+                {
+                    [LogMessage(LogLevel.Information, "Hello")]
+                    static partial void Greet();
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Outer.Log");
+        Assert.That(generated, Does.Contain("sealed partial class Log"));
+    }
+
+    [Test]
+    public void ClassModifier_AllVisibilities_CompileSuccessfully()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public partial class Outer
+            {
+                public static partial class PubLog
+                {
+                    [LogMessage(LogLevel.Information, "pub")]
+                    public static partial void Pub();
+                }
+                internal static partial class IntLog
+                {
+                    [LogMessage(LogLevel.Information, "int")]
+                    static partial void Int();
+                }
+                protected static partial class ProtLog
+                {
+                    [LogMessage(LogLevel.Information, "prot")]
+                    static partial void Prot();
+                }
+                private static partial class PrivLog
+                {
+                    [LogMessage(LogLevel.Information, "priv")]
+                    static partial void Priv();
+                }
+                protected internal static partial class ProtIntLog
+                {
+                    [LogMessage(LogLevel.Information, "protint")]
+                    static partial void ProtInt();
+                }
+                private protected static partial class PrivProtLog
+                {
+                    [LogMessage(LogLevel.Information, "privprot")]
+                    static partial void PrivProt();
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var (result, diagnostics) = GeneratorTestHelper.RunGeneratorWithDiagnostics(compilation);
+
+        var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+        Assert.That(errors, Is.Empty,
+            $"All visibility modifiers should compile. Errors: {string.Join("\n", errors.Select(e => e.ToString()))}");
+
+        var warnings = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Warning).ToList();
+        Assert.That(warnings, Is.Empty,
+            $"All visibility modifiers should have no warnings. Warnings: {string.Join("\n", warnings.Select(w => w.ToString()))}");
+    }
+
+    [Test]
     public void NestedClass_SingleLevel_EmitsNestingWrapper()
     {
         var source = """
