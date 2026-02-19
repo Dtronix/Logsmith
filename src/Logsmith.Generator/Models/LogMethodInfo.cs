@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.CodeAnalysis;
 
 namespace Logsmith.Generator.Models;
@@ -6,7 +7,9 @@ namespace Logsmith.Generator.Models;
 public sealed class LogMethodInfo
 {
     public string ContainingNamespace { get; }
-    public string ContainingClassName { get; }
+    public IReadOnlyList<ContainingTypeInfo> ContainingTypeChain { get; }
+    public string ContainingClassName => ContainingTypeChain[ContainingTypeChain.Count - 1].Name;
+    public string QualifiedClassName => string.Join(".", ContainingTypeChain.Select(c => c.Name));
     public string MethodName { get; }
     public string Category { get; }
     public int Level { get; }
@@ -23,7 +26,7 @@ public sealed class LogMethodInfo
 
     public LogMethodInfo(
         string containingNamespace,
-        string containingClassName,
+        IReadOnlyList<ContainingTypeInfo> containingTypeChain,
         string methodName,
         string category,
         int level,
@@ -39,7 +42,7 @@ public sealed class LogMethodInfo
         string accessModifier = "")
     {
         ContainingNamespace = containingNamespace;
-        ContainingClassName = containingClassName;
+        ContainingTypeChain = containingTypeChain;
         MethodName = methodName;
         Category = category;
         Level = level;
