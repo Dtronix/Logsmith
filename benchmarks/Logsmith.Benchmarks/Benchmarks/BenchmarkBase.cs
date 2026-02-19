@@ -10,6 +10,8 @@ using NLogLevel = NLog.LogLevel;
 
 namespace Logsmith.Benchmarks.Benchmarks;
 
+[MaxWarmupCount(10)]
+[MaxIterationCount(20)]
 public abstract class BenchmarkBase
 {
     // MEL
@@ -74,7 +76,7 @@ public abstract class BenchmarkBase
     }
 
     [GlobalCleanup]
-    public void Cleanup()
+    public virtual void Cleanup()
     {
         Logsmith.LogManager.Reset();
         _melFactory?.Dispose();

@@ -13,6 +13,7 @@ Logsmith is a logging framework where the source generator *is* the framework. E
 - [What Logsmith Is](#what-logsmith-is)
 - [What Logsmith Is Not](#what-logsmith-is-not)
 - [Comparison with Other Frameworks](#comparison-with-other-frameworks)
+- [Benchmarks](#benchmarks)
 - [Features](#features)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -102,6 +103,12 @@ The generator reads your method declarations at build time. It knows the concret
 | MEL ecosystem compatibility | Yes (bridge package) | Native | Native | Via Serilog.Extensions.Logging | Via NLog.Extensions.Logging |
 | DI container required | No | Typically yes | Typically yes | No | No |
 | Transitive dependencies | Zero (standalone) | MEL abstractions | MEL + ZLogger | Serilog + sinks | NLog |
+
+---
+
+## Benchmarks
+
+Full benchmark results comparing Logsmith against MEL, Serilog, NLog, and ZLogger are available in [docs/benchmarks.md](docs/benchmarks.md). Benchmarks cover simple messages, templated messages, multi-parameter formatting, exception logging, disabled-level guard checks, and scoped context overhead.
 
 ---
 
