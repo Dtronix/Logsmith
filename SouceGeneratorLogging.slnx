@@ -2,10 +2,12 @@
   <Folder Name="/src/">
     <Project Path="src/Logsmith/Logsmith.csproj" />
     <Project Path="src/Logsmith.Generator/Logsmith.Generator.csproj" />
+    <Project Path="src/Logsmith.Extensions.Logging/Logsmith.Extensions.Logging.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Logsmith.Tests/Logsmith.Tests.csproj" />
     <Project Path="tests/Logsmith.Generator.Tests/Logsmith.Generator.Tests.csproj" />
+    <Project Path="tests/Logsmith.Extensions.Logging.Tests/Logsmith.Extensions.Logging.Tests.csproj" />
   </Folder>
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/Logsmith.Benchmarks/Logsmith.Benchmarks.csproj" />
@@ -13,5 +15,6 @@
   <Folder Name="/samples/">
     <Project Path="samples/Logsmith.Sample/Logsmith.Sample.Shared.csproj" />
     <Project Path="samples/Logsmith.Sample/Logsmith.Sample.Standalone.csproj" />
+    <Project Path="samples/Logsmith.Sample.MelBridge/Logsmith.Sample.MelBridge.csproj" />
   </Folder>
 </Solution>

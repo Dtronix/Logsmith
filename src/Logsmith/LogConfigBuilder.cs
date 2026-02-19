@@ -1,3 +1,4 @@
+using Logsmith.DynamicLevel;
 using Logsmith.Formatting;
 using Logsmith.Internal;
 
@@ -7,6 +8,7 @@ public sealed class LogConfigBuilder
 {
     private readonly List<ILogSink> _sinks = new();
     private readonly Dictionary<string, LogLevel> _categoryOverrides = new();
+    private readonly List<Func<IDisposable>> _monitorFactories = new();
 
     public LogLevel MinimumLevel { get; set; } = LogLevel.Information;
     public Action<Exception>? InternalErrorHandler { get; set; }
@@ -64,9 +66,29 @@ public sealed class LogConfigBuilder
         _sinks.Clear();
     }
 
+    public void WatchEnvironmentVariable(string name = "LOGSMITH_LEVEL", TimeSpan? pollInterval = null)
+    {
+        var interval = pollInterval ?? TimeSpan.FromSeconds(5);
+        var envName = name;
+        _monitorFactories.Add(() => new EnvironmentLevelMonitor(envName, interval));
+    }
+
+    public void WatchConfigFile(string path)
+    {
+        var filePath = path;
+        _monitorFactories.Add(() => new FileLevelMonitor(filePath));
+    }
+
     internal LogConfig Build()
     {
         var sinkSet = SinkSet.Classify(_sinks);
-        return new LogConfig(MinimumLevel, _categoryOverrides, sinkSet, InternalErrorHandler);
+        IDisposable[]? monitors = null;
+        if (_monitorFactories.Count > 0)
+        {
+            monitors = new IDisposable[_monitorFactories.Count];
+            for (int i = 0; i < _monitorFactories.Count; i++)
+                monitors[i] = _monitorFactories[i]();
+        }
+        return new LogConfig(MinimumLevel, _categoryOverrides, sinkSet, InternalErrorHandler, monitors);
     }
 }

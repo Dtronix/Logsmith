@@ -41,6 +41,17 @@ internal static class MethodEmitter
             innerSb.Append(EmitMethodBody(methods[i]));
         }
 
+        // Emit static counter fields for sampling/rate-limiting
+        foreach (var method in methods)
+        {
+            var counterFields = EmitStaticCounterFields(method);
+            if (!string.IsNullOrEmpty(counterFields))
+            {
+                innerSb.AppendLine();
+                innerSb.Append(counterFields);
+            }
+        }
+
         // Emit state structs for methods with structured dispatch
         foreach (var method in methods)
         {
@@ -147,6 +158,20 @@ internal static class MethodEmitter
         {
             sb.AppendLine($"        if (!global::Logsmith.LogManager.IsEnabled(global::Logsmith.LogLevel.{levelName}, \"{EscapeString(method.Category)}\"))");
             sb.AppendLine("            return;");
+        }
+
+        // Sampling guard
+        if (method.SampleRate > 1)
+        {
+            sb.AppendLine();
+            sb.Append(EmitSamplingGuard(method));
+        }
+
+        // Rate-limiting guard
+        if (method.MaxPerSecond > 0)
+        {
+            sb.AppendLine();
+            sb.Append(EmitRateLimitGuard(method));
         }
 
         sb.AppendLine();
@@ -330,6 +355,47 @@ internal static class MethodEmitter
         else if (param.IsNullableReferenceType)
             type = $"{type}?";
         return type;
+    }
+
+    internal static string EmitSamplingGuard(LogMethodInfo method)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"        if ((global::System.Threading.Interlocked.Increment(ref __sampleCounter_{method.MethodName}) % {method.SampleRate}) != 0)");
+        sb.AppendLine("            return;");
+        return sb.ToString();
+    }
+
+    internal static string EmitRateLimitGuard(LogMethodInfo method)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"        long __nowSeconds_{method.MethodName} = global::System.DateTime.UtcNow.Ticks / global::System.TimeSpan.TicksPerSecond;");
+        sb.AppendLine($"        long __window_{method.MethodName} = global::System.Threading.Volatile.Read(ref __rateWindow_{method.MethodName});");
+        sb.AppendLine($"        if (__nowSeconds_{method.MethodName} != __window_{method.MethodName})");
+        sb.AppendLine("        {");
+        sb.AppendLine($"            global::System.Threading.Interlocked.Exchange(ref __rateWindow_{method.MethodName}, __nowSeconds_{method.MethodName});");
+        sb.AppendLine($"            global::System.Threading.Interlocked.Exchange(ref __rateCount_{method.MethodName}, 0);");
+        sb.AppendLine("        }");
+        sb.AppendLine($"        if (global::System.Threading.Interlocked.Increment(ref __rateCount_{method.MethodName}) > {method.MaxPerSecond})");
+        sb.AppendLine("            return;");
+        return sb.ToString();
+    }
+
+    internal static string EmitStaticCounterFields(LogMethodInfo method)
+    {
+        var sb = new StringBuilder();
+
+        if (method.SampleRate > 1)
+        {
+            sb.AppendLine($"    private static int __sampleCounter_{method.MethodName};");
+        }
+
+        if (method.MaxPerSecond > 0)
+        {
+            sb.AppendLine($"    private static long __rateWindow_{method.MethodName};");
+            sb.AppendLine($"    private static int __rateCount_{method.MethodName};");
+        }
+
+        return sb.ToString();
     }
 
     private static string EscapeString(string text)
