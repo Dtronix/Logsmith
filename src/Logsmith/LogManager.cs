@@ -60,17 +60,30 @@ public static class LogManager
 
         var errorHandler = config.ErrorHandler;
 
-        // Append scope properties to text message if scopes are active
-        Span<byte> scopeBuffer = stackalloc byte[512];
-        var scopeWriter = new Utf8LogWriter(scopeBuffer);
-        scopeWriter.Write(utf8Message);
-        var scope = LogScope.Current;
-        if (scope is not null)
+        // Build scoped message only when scopes are active
+        if (LogScope.Current is not null)
         {
+            Span<byte> scopeBuffer = stackalloc byte[512];
+            var scopeWriter = new Utf8LogWriter(scopeBuffer);
+            scopeWriter.Write(utf8Message);
             LogScope.WriteScopeToUtf8(ref scopeWriter);
+            DispatchToSinks(in entry, scopeWriter.GetWritten(), state, propertyWriter, sinkSet, errorHandler);
         }
-        var messageToWrite = scopeWriter.GetWritten();
+        else
+        {
+            DispatchToSinks(in entry, utf8Message, state, propertyWriter, sinkSet, errorHandler);
+        }
+    }
 
+    private static void DispatchToSinks<TState>(
+        in LogEntry entry,
+        ReadOnlySpan<byte> utf8Message,
+        TState state,
+        WriteProperties<TState> propertyWriter,
+        Internal.SinkSet sinkSet,
+        Action<Exception>? errorHandler)
+        where TState : allows ref struct
+    {
         var textSinks = sinkSet.TextSinks;
         for (int i = 0; i < textSinks.Length; i++)
         {
@@ -78,7 +91,7 @@ public static class LogManager
             {
                 try
                 {
-                    textSinks[i].Write(in entry, messageToWrite);
+                    textSinks[i].Write(in entry, utf8Message);
                 }
                 catch (Exception ex)
                 {
