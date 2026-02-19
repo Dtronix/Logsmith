@@ -11,6 +11,7 @@ using NLogLevel = NLog.LogLevel;
 namespace Logsmith.Benchmarks.Benchmarks;
 
 [MaxWarmupCount(10)]
+[MaxIterationCount(20)]
 public abstract class BenchmarkBase
 {
     // MEL
