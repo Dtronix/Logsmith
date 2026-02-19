@@ -16,6 +16,21 @@ public sealed class LogConfigBuilder
         _categoryOverrides[category] = level;
     }
 
+    public void SetMinimumLevel<T>(LogLevel level)
+    {
+        const string fieldName = "CategoryName";
+        var field = typeof(T).GetField(fieldName, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+        if (field is not null && field.FieldType == typeof(string))
+        {
+            var category = (string)field.GetValue(null)!;
+            _categoryOverrides[category] = level;
+        }
+        else
+        {
+            _categoryOverrides[typeof(T).Name] = level;
+        }
+    }
+
     public void AddSink(ILogSink sink)
     {
         _sinks.Add(sink);

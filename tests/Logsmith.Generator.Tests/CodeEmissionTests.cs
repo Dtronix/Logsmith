@@ -279,6 +279,68 @@ public class CodeEmissionTests
         Assert.That(generated, Does.Contain("threadName: global::System.Threading.Thread.CurrentThread.Name"));
     }
 
+    [Test]
+    public void CategoryName_Constant_EmittedWithClassName()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Hello")]
+                static partial void Greet();
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        Assert.That(generated, Does.Contain("public const string CategoryName = \"Log\";"));
+    }
+
+    [Test]
+    public void CategoryName_Constant_EmittedWithLogCategoryAttribute()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            [LogCategory("MyApp")]
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Hello")]
+                static partial void Greet();
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        Assert.That(generated, Does.Contain("public const string CategoryName = \"MyApp\";"));
+    }
+
+    [Test]
+    public void IsEnabled_PassesCategoryToLogManager()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            [LogCategory("HTTP")]
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Request")]
+                static partial void Request();
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        Assert.That(generated, Does.Contain("LogManager.IsEnabled(global::Logsmith.LogLevel.Information, \"HTTP\")"));
+    }
+
     private static string GetGeneratedSource(GeneratorRunResult result, string hintPrefix)
     {
         var source = result.GeneratedSources
