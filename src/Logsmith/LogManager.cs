@@ -56,6 +56,17 @@ public static class LogManager
 
         var errorHandler = config.ErrorHandler;
 
+        // Append scope properties to text message if scopes are active
+        Span<byte> scopeBuffer = stackalloc byte[512];
+        var scopeWriter = new Utf8LogWriter(scopeBuffer);
+        scopeWriter.Write(utf8Message);
+        var scope = LogScope.Current;
+        if (scope is not null)
+        {
+            LogScope.WriteScopeToUtf8(ref scopeWriter);
+        }
+        var messageToWrite = scopeWriter.GetWritten();
+
         var textSinks = sinkSet.TextSinks;
         for (int i = 0; i < textSinks.Length; i++)
         {
@@ -63,7 +74,7 @@ public static class LogManager
             {
                 try
                 {
-                    textSinks[i].Write(in entry, utf8Message);
+                    textSinks[i].Write(in entry, messageToWrite);
                 }
                 catch (Exception ex)
                 {
