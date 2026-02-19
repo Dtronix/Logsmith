@@ -15,7 +15,7 @@ public class ConsoleSink : TextLogSink
     public ConsoleSink(bool colored = true, LogLevel minimumLevel = LogLevel.Trace, ILogFormatter? formatter = null)
         : base(minimumLevel)
     {
-        _colored = colored;
+        _colored = colored && !Console.IsOutputRedirected;
         _stdout = Console.OpenStandardOutput();
         _formatter = formatter ?? new DefaultLogFormatter(includeDate: false);
     }
