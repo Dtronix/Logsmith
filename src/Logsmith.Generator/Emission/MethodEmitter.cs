@@ -206,6 +206,8 @@ internal static class MethodEmitter
             sb.AppendLine($"        global::Logsmith.LogManager.Dispatch(in __entry, __utf8Message, __state, WriteProperties_{method.MethodName});");
         }
 
+        // Return any ArrayPool buffer rented during overflow
+        sb.AppendLine("        writer.Dispose();");
         sb.AppendLine("    }");
         return sb.ToString();
     }
