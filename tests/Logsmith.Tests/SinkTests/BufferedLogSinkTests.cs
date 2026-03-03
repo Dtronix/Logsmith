@@ -101,6 +101,101 @@ public class BufferedLogSinkTests
         sink.Dispose();
     }
 
+    [Test]
+    public void Write_ChannelFull_IncrementsDroppedCount()
+    {
+        using var ms = new MemoryStream();
+        var sink = new SlowStreamSink(ms, capacity: 1);
+        var entry = MakeEntry();
+
+        // Fill the channel and force drops
+        for (int i = 0; i < 50; i++)
+            sink.Write(in entry, "drop-test"u8);
+
+        Assert.That(sink.DroppedCount, Is.GreaterThan(0));
+        sink.Dispose();
+    }
+
+    [Test]
+    public void Write_ChannelFull_ErrorHandlerCalledWithLogDroppedException()
+    {
+        var exceptions = new List<Exception>();
+        using var ms = new MemoryStream();
+        var sink = new SlowStreamSink(ms, capacity: 1, errorHandler: ex => exceptions.Add(ex));
+        var entry = MakeEntry();
+
+        for (int i = 0; i < 50; i++)
+            sink.Write(in entry, "handler-test"u8);
+
+        Assert.That(exceptions, Is.Not.Empty);
+        Assert.That(exceptions[0], Is.TypeOf<LogDroppedException>());
+        Assert.That(((LogDroppedException)exceptions[0]).TotalDropped, Is.GreaterThanOrEqualTo(1));
+        sink.Dispose();
+    }
+
+    [Test]
+    public void Write_ChannelFull_ErrorHandlerIsThrottled()
+    {
+        var callCount = 0;
+        using var ms = new MemoryStream();
+        var sink = new SlowStreamSink(ms, capacity: 1, errorHandler: _ => Interlocked.Increment(ref callCount));
+        var entry = MakeEntry();
+
+        // Rapid-fire drops all happen within the same tick window
+        for (int i = 0; i < 200; i++)
+            sink.Write(in entry, "throttle"u8);
+
+        // Throttle should limit notifications — far fewer callbacks than drops
+        Assert.That(callCount, Is.LessThan(sink.DroppedCount));
+        sink.Dispose();
+    }
+
+    [Test]
+    public void Write_ChannelFull_ConcurrentDropCountIsAccurate()
+    {
+        using var ms = new MemoryStream();
+        var sink = new SlowStreamSink(ms, capacity: 1);
+        var entry = MakeEntry();
+        var barrier = new Barrier(4);
+
+        var tasks = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
+        {
+            barrier.SignalAndWait();
+            for (int i = 0; i < 100; i++)
+                sink.Write(in entry, "concurrent"u8);
+        })).ToArray();
+
+        Task.WaitAll(tasks);
+
+        // DroppedCount should be consistent (>0 since capacity=1 with slow consumer and 4 threads)
+        Assert.That(sink.DroppedCount, Is.GreaterThan(0));
+        sink.Dispose();
+    }
+
+    [Test]
+    public async Task Write_ChannelNotFull_NoDropsReported()
+    {
+        using var ms = new MemoryStream();
+        var errorCalled = false;
+        var sink = new StreamSink(ms, formatter: NullLogFormatter.Instance, leaveOpen: true,
+            capacity: 1024, errorHandler: _ => errorCalled = true);
+        var entry = MakeEntry();
+
+        sink.Write(in entry, "no-drop"u8);
+        await sink.DisposeAsync();
+
+        Assert.That(sink.DroppedCount, Is.EqualTo(0));
+        Assert.That(errorCalled, Is.False);
+    }
+
+    [Test]
+    public void LogDroppedException_TotalDropped_ReflectsCount()
+    {
+        var ex = new LogDroppedException(42);
+        Assert.That(ex.TotalDropped, Is.EqualTo(42));
+        Assert.That(ex.Message, Does.Contain("42"));
+    }
+
     private static LogEntry MakeEntry() => new(
         LogLevel.Information, 1, DateTime.UtcNow.Ticks, "Test");
 
@@ -111,8 +206,9 @@ public class BufferedLogSinkTests
     {
         private readonly Stream _stream;
 
-        public SlowStreamSink(Stream stream, int capacity = 1)
-            : base(LogLevel.Trace, capacity)
+        public SlowStreamSink(Stream stream, int capacity = 1,
+                              Action<Exception>? errorHandler = null)
+            : base(LogLevel.Trace, capacity, errorHandler: errorHandler)
         {
             _stream = stream;
         }

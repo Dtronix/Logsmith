@@ -52,7 +52,7 @@ public sealed class LogConfigBuilder
     {
         AddSink(new Sinks.FileSink(path, formatter: formatter, shared: shared,
             rollingInterval: rollingInterval, maxFileSizeBytes: maxFileSizeBytes,
-            drainTimeout: drainTimeout));
+            drainTimeout: drainTimeout, errorHandler: InternalErrorHandler));
     }
 
     public void AddDebugSink(ILogFormatter? formatter = null)
@@ -64,7 +64,7 @@ public sealed class LogConfigBuilder
                               TimeSpan? drainTimeout = null)
     {
         AddSink(new Sinks.StreamSink(stream, formatter: formatter, leaveOpen: leaveOpen,
-            drainTimeout: drainTimeout));
+            drainTimeout: drainTimeout, errorHandler: InternalErrorHandler));
     }
 
     public void ClearSinks()

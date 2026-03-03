@@ -12,8 +12,8 @@ public class StreamSink : BufferedLogSink
 
     public StreamSink(Stream stream, LogLevel minimumLevel = LogLevel.Trace,
                       ILogFormatter? formatter = null, bool leaveOpen = false, int capacity = 1024,
-                      TimeSpan? drainTimeout = null)
-        : base(minimumLevel, capacity, drainTimeout: drainTimeout)
+                      TimeSpan? drainTimeout = null, Action<Exception>? errorHandler = null)
+        : base(minimumLevel, capacity, drainTimeout: drainTimeout, errorHandler: errorHandler)
     {
         _stream = stream ?? throw new ArgumentNullException(nameof(stream));
         _formatter = formatter ?? new DefaultLogFormatter(includeDate: true);
