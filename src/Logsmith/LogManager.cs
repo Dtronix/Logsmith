@@ -6,7 +6,6 @@ public static class LogManager
 {
     private static volatile LogConfig? _config;
     private static int _initialized;
-    private static Action<Exception>? _exceptionHandler;
     private static int _exceptionsCaptured;
     private static int _processExitRegistered;
     private static int _shutdownCompleted;
@@ -22,16 +21,22 @@ public static class LogManager
         configure(builder);
         _config = builder.Build();
 
+        StartCapturingExceptions(_config);
+
         Interlocked.Exchange(ref _shutdownCompleted, 0);
         RegisterProcessExitHook();
     }
 
     public static void Reconfigure(Action<LogConfigBuilder> configure)
     {
+        StopCapturingExceptions();
+
         var old = _config;
         var builder = new LogConfigBuilder();
         configure(builder);
         _config = builder.Build();
+
+        StartCapturingExceptions(_config);
 
         if (old is not null)
             Task.Run(async () => await old.DisposeAllAsync());
@@ -39,10 +44,14 @@ public static class LogManager
 
     public static async ValueTask ReconfigureAsync(Action<LogConfigBuilder> configure)
     {
+        StopCapturingExceptions();
+
         var old = _config;
         var builder = new LogConfigBuilder();
         configure(builder);
         _config = builder.Build();
+
+        StartCapturingExceptions(_config);
 
         if (old is not null)
             await old.DisposeAllAsync();
@@ -53,7 +62,7 @@ public static class LogManager
         if (Interlocked.CompareExchange(ref _shutdownCompleted, 1, 0) != 0)
             return;
 
-        StopCapturingUnhandledExceptions();
+        StopCapturingExceptions();
 
         var old = Interlocked.Exchange(ref _config, null);
         Interlocked.Exchange(ref _initialized, 0);
@@ -202,22 +211,20 @@ public static class LogManager
         }
     }
 
-    public static void CaptureUnhandledExceptions(Action<Exception> handler, bool observeTaskExceptions = false)
+    private static void StartCapturingExceptions(LogConfig config)
     {
-        if (Interlocked.CompareExchange(ref _exceptionsCaptured, 1, 0) != 0)
-            return;
-
-        Volatile.Write(ref _exceptionHandler, handler);
+        if (!config.CaptureUnhandledExceptions) return;
+        if (Interlocked.CompareExchange(ref _exceptionsCaptured, 1, 0) != 0) return;
 
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
 
-        if (observeTaskExceptions)
+        if (config.ObserveTaskExceptions)
             TaskScheduler.UnobservedTaskException += OnUnobservedTaskExceptionObserve;
         else
             TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
     }
 
-    public static void StopCapturingUnhandledExceptions()
+    private static void StopCapturingExceptions()
     {
         if (Interlocked.CompareExchange(ref _exceptionsCaptured, 0, 1) != 1)
             return;
@@ -225,12 +232,11 @@ public static class LogManager
         AppDomain.CurrentDomain.UnhandledException -= OnUnhandledException;
         TaskScheduler.UnobservedTaskException -= OnUnobservedTaskException;
         TaskScheduler.UnobservedTaskException -= OnUnobservedTaskExceptionObserve;
-        Volatile.Write(ref _exceptionHandler, null);
     }
 
     private static void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
     {
-        var handler = Volatile.Read(ref _exceptionHandler);
+        var handler = _config?.ErrorHandler;
         if (handler is null) return;
 
         if (e.ExceptionObject is Exception ex)
@@ -241,7 +247,7 @@ public static class LogManager
 
     private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
     {
-        var handler = Volatile.Read(ref _exceptionHandler);
+        var handler = _config?.ErrorHandler;
         if (handler is null) return;
 
         try { handler(e.Exception); } catch { }
@@ -249,7 +255,7 @@ public static class LogManager
 
     private static void OnUnobservedTaskExceptionObserve(object? sender, UnobservedTaskExceptionEventArgs e)
     {
-        var handler = Volatile.Read(ref _exceptionHandler);
+        var handler = _config?.ErrorHandler;
         if (handler is null) return;
 
         try { handler(e.Exception); } catch { }
@@ -274,7 +280,8 @@ public static class LogManager
         var current = _config;
         if (current is null) return;
 
-        var newConfig = new LogConfig(level, current.CategoryOverrides.ToDictionary(), current.Sinks, current.ErrorHandler, current.Monitors);
+        var newConfig = new LogConfig(level, current.CategoryOverrides.ToDictionary(), current.Sinks, current.ErrorHandler, current.Monitors,
+            current.CaptureUnhandledExceptions, current.ObserveTaskExceptions);
         _config = newConfig;
     }
 
@@ -283,14 +290,15 @@ public static class LogManager
         var current = _config;
         if (current is null) return;
 
-        var newConfig = new LogConfig(current.MinimumLevel, overrides, current.Sinks, current.ErrorHandler, current.Monitors);
+        var newConfig = new LogConfig(current.MinimumLevel, overrides, current.Sinks, current.ErrorHandler, current.Monitors,
+            current.CaptureUnhandledExceptions, current.ObserveTaskExceptions);
         _config = newConfig;
     }
 
     // For testing: reset state so Initialize can be called again.
     internal static void Reset()
     {
-        StopCapturingUnhandledExceptions();
+        StopCapturingExceptions();
         var old = _config;
         _config = null;
         Interlocked.Exchange(ref _initialized, 0);

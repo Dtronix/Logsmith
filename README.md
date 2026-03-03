@@ -160,7 +160,7 @@ Opt-in monitors for adjusting log levels at runtime without full reconfiguration
 
 ### Global Exception Handler
 
-`CaptureUnhandledExceptions` wires `AppDomain.UnhandledException` and `TaskScheduler.UnobservedTaskException` to a user-provided callback with opt-in `SetObserved()` support.
+`CaptureUnhandledExceptions` wires `AppDomain.UnhandledException` and `TaskScheduler.UnobservedTaskException` to the `InternalErrorHandler` with opt-in `SetObserved()` support. Configured via the builder, its lifecycle is tied to `Reconfigure()` and `Shutdown()`.
 
 ### Microsoft.Extensions.Logging Bridge
 
@@ -720,12 +720,14 @@ Monitors are created during `Build()` and stored in the config. When `Reconfigur
 
 ## Global Exception Handler
 
-Explicit opt-in for capturing unhandled and unobserved task exceptions.
+Explicit opt-in for capturing unhandled and unobserved task exceptions, configured via the builder.
 
 ```csharp
-LogManager.CaptureUnhandledExceptions(ex =>
+LogManager.Initialize(cfg =>
 {
-    Log.UnhandledException(ex);
+    cfg.AddConsoleSink();
+    cfg.InternalErrorHandler = ex => Console.Error.WriteLine(ex);
+    cfg.CaptureUnhandledExceptions();
 });
 ```
 
@@ -733,26 +735,23 @@ This wires:
 - `AppDomain.CurrentDomain.UnhandledException` — captures unhandled exceptions on any thread.
 - `TaskScheduler.UnobservedTaskException` — captures exceptions from unawaited tasks.
 
-The handler runs inside a `try/catch` — a failing handler cannot crash the process.
+Captured exceptions are routed to `InternalErrorHandler`. The handler runs inside a `try/catch` — a failing handler cannot crash the process.
 
 ### Observing task exceptions
 
 By default, unobserved task exceptions are logged but not observed. To also call `SetObserved()` (preventing process termination in certain configurations):
 
 ```csharp
-LogManager.CaptureUnhandledExceptions(ex =>
-{
-    Log.UnhandledException(ex);
-}, observeTaskExceptions: true);
+cfg.CaptureUnhandledExceptions(observeTaskExceptions: true);
 ```
 
-### Stopping capture
+### Lifecycle
 
-```csharp
-LogManager.StopCapturingUnhandledExceptions();
-```
+Exception capture is tied to the logging configuration lifecycle:
+- `Reconfigure()` — old config unsubscribes, new config subscribes (if configured).
+- `Shutdown()` — unsubscribes automatically.
 
-`Reset()` calls this automatically for test isolation.
+No manual `StopCapturing` call is needed.
 
 ---
 
@@ -1166,11 +1165,13 @@ The configuration object is immutable. Reconfiguration builds a new config and s
 ### Global exception handler
 
 ```csharp
-LogManager.CaptureUnhandledExceptions(
-    handler: ex => Log.UnhandledException(ex),
-    observeTaskExceptions: false);   // true to call SetObserved()
-
-LogManager.StopCapturingUnhandledExceptions();
+LogManager.Initialize(cfg =>
+{
+    cfg.InternalErrorHandler = ex => Console.Error.WriteLine(ex);
+    cfg.CaptureUnhandledExceptions(observeTaskExceptions: false); // true to call SetObserved()
+    // ...
+});
+// Automatically unsubscribed on Reconfigure() or Shutdown()
 ```
 
 ### MSBuild properties
