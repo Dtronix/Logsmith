@@ -8,6 +8,10 @@ public static class LogManager
     private static int _initialized;
     private static Action<Exception>? _exceptionHandler;
     private static int _exceptionsCaptured;
+    private static int _processExitRegistered;
+    private static int _shutdownCompleted;
+
+    private static readonly TimeSpan ProcessExitTimeout = TimeSpan.FromSeconds(5);
 
     public static void Initialize(Action<LogConfigBuilder> configure)
     {
@@ -17,6 +21,9 @@ public static class LogManager
         var builder = new LogConfigBuilder();
         configure(builder);
         _config = builder.Build();
+
+        Interlocked.Exchange(ref _shutdownCompleted, 0);
+        RegisterProcessExitHook();
     }
 
     public static void Reconfigure(Action<LogConfigBuilder> configure)
@@ -25,7 +32,56 @@ public static class LogManager
         var builder = new LogConfigBuilder();
         configure(builder);
         _config = builder.Build();
-        old?.DisposeMonitors();
+
+        if (old is not null)
+            Task.Run(async () => await old.DisposeAllAsync());
+    }
+
+    public static async ValueTask ReconfigureAsync(Action<LogConfigBuilder> configure)
+    {
+        var old = _config;
+        var builder = new LogConfigBuilder();
+        configure(builder);
+        _config = builder.Build();
+
+        if (old is not null)
+            await old.DisposeAllAsync();
+    }
+
+    public static async ValueTask ShutdownAsync(TimeSpan? timeout = null)
+    {
+        if (Interlocked.CompareExchange(ref _shutdownCompleted, 1, 0) != 0)
+            return;
+
+        StopCapturingUnhandledExceptions();
+
+        var old = Interlocked.Exchange(ref _config, null);
+        Interlocked.Exchange(ref _initialized, 0);
+
+        if (old is null)
+            return;
+
+        if (timeout is null)
+        {
+            await old.DisposeAllAsync();
+        }
+        else
+        {
+            using var cts = new CancellationTokenSource(timeout.Value);
+            try
+            {
+                await old.DisposeAllAsync().AsTask().WaitAsync(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Disposal timed out — best effort, move on
+            }
+        }
+    }
+
+    public static void Shutdown(TimeSpan? timeout = null)
+    {
+        ShutdownAsync(timeout).AsTask().GetAwaiter().GetResult();
     }
 
     public static bool IsEnabled(LogLevel level)
@@ -171,6 +227,19 @@ public static class LogManager
         e.SetObserved();
     }
 
+    private static void RegisterProcessExitHook()
+    {
+        if (Interlocked.CompareExchange(ref _processExitRegistered, 1, 0) != 0)
+            return;
+
+        AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
+    }
+
+    private static void OnProcessExit(object? sender, EventArgs e)
+    {
+        Shutdown(ProcessExitTimeout);
+    }
+
     internal static void SetMinimumLevel(LogLevel level)
     {
         var current = _config;
@@ -196,6 +265,9 @@ public static class LogManager
         var old = _config;
         _config = null;
         Interlocked.Exchange(ref _initialized, 0);
-        old?.DisposeMonitors();
+        Interlocked.Exchange(ref _shutdownCompleted, 0);
+
+        if (old is not null)
+            old.DisposeAllAsync().AsTask().GetAwaiter().GetResult();
     }
 }

@@ -45,10 +45,12 @@ public sealed class LogConfigBuilder
 
     public void AddFileSink(string path, ILogFormatter? formatter = null, bool shared = false,
                             Sinks.RollingInterval rollingInterval = Sinks.RollingInterval.None,
-                            long maxFileSizeBytes = 10 * 1024 * 1024)
+                            long maxFileSizeBytes = 10 * 1024 * 1024,
+                            TimeSpan? drainTimeout = null)
     {
         AddSink(new Sinks.FileSink(path, formatter: formatter, shared: shared,
-            rollingInterval: rollingInterval, maxFileSizeBytes: maxFileSizeBytes));
+            rollingInterval: rollingInterval, maxFileSizeBytes: maxFileSizeBytes,
+            drainTimeout: drainTimeout));
     }
 
     public void AddDebugSink(ILogFormatter? formatter = null)
@@ -56,9 +58,11 @@ public sealed class LogConfigBuilder
         AddSink(new Sinks.DebugSink(formatter: formatter));
     }
 
-    public void AddStreamSink(Stream stream, bool leaveOpen = false, ILogFormatter? formatter = null)
+    public void AddStreamSink(Stream stream, bool leaveOpen = false, ILogFormatter? formatter = null,
+                              TimeSpan? drainTimeout = null)
     {
-        AddSink(new Sinks.StreamSink(stream, formatter: formatter, leaveOpen: leaveOpen));
+        AddSink(new Sinks.StreamSink(stream, formatter: formatter, leaveOpen: leaveOpen,
+            drainTimeout: drainTimeout));
     }
 
     public void ClearSinks()

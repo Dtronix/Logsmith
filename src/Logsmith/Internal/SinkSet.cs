@@ -4,11 +4,13 @@ internal sealed class SinkSet
 {
     internal readonly ILogSink[] TextSinks;
     internal readonly IStructuredLogSink[] StructuredSinks;
+    internal readonly ILogSink[] AllSinks;
 
-    internal SinkSet(ILogSink[] textSinks, IStructuredLogSink[] structuredSinks)
+    internal SinkSet(ILogSink[] textSinks, IStructuredLogSink[] structuredSinks, ILogSink[] allSinks)
     {
         TextSinks = textSinks;
         StructuredSinks = structuredSinks;
+        AllSinks = allSinks;
     }
 
     internal static SinkSet Classify(List<ILogSink> sinks)
@@ -25,6 +27,24 @@ internal sealed class SinkSet
             }
         }
 
-        return new SinkSet(textSinks, structuredList.ToArray());
+        return new SinkSet(textSinks, structuredList.ToArray(), sinks.ToArray());
+    }
+
+    internal async ValueTask DisposeSinksAsync()
+    {
+        foreach (var sink in AllSinks)
+        {
+            try
+            {
+                if (sink is IAsyncDisposable asyncDisposable)
+                    await asyncDisposable.DisposeAsync();
+                else
+                    sink.Dispose();
+            }
+            catch
+            {
+                // Swallow — same pattern as DisposeMonitors()
+            }
+        }
     }
 }

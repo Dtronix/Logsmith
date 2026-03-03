@@ -15,10 +15,13 @@ public abstract class BufferedLogSink : ILogSink, IAsyncDisposable
     private readonly Channel<BufferedEntry> _channel;
     private readonly Task _drainTask;
     private readonly CancellationTokenSource _cts = new();
+    private readonly TimeSpan _drainTimeout;
 
-    protected BufferedLogSink(LogLevel minimumLevel = LogLevel.Trace, int capacity = 1024)
+    protected BufferedLogSink(LogLevel minimumLevel = LogLevel.Trace, int capacity = 1024,
+                              TimeSpan? drainTimeout = null)
     {
         MinimumLevel = minimumLevel;
+        _drainTimeout = drainTimeout ?? TimeSpan.FromSeconds(30);
         _channel = Channel.CreateBounded<BufferedEntry>(new BoundedChannelOptions(capacity)
         {
             FullMode = BoundedChannelFullMode.Wait,
@@ -71,7 +74,25 @@ public abstract class BufferedLogSink : ILogSink, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _channel.Writer.Complete();
-        await _drainTask;
+
+        if (_drainTimeout == Timeout.InfiniteTimeSpan)
+        {
+            await _drainTask;
+        }
+        else
+        {
+            using var timeoutCts = new CancellationTokenSource(_drainTimeout);
+            try
+            {
+                await _drainTask.WaitAsync(timeoutCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Drain timed out — cancel the drain loop so it stops processing
+                await _cts.CancelAsync();
+            }
+        }
+
         _cts.Dispose();
         await OnDisposeAsync();
     }
