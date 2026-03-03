@@ -9,6 +9,8 @@ public sealed class LogConfigBuilder
     private readonly List<ILogSink> _sinks = new();
     private readonly Dictionary<string, LogLevel> _categoryOverrides = new();
     private readonly List<Func<IDisposable>> _monitorFactories = new();
+    private bool _captureUnhandledExceptions;
+    private bool _observeTaskExceptions;
 
     public LogLevel MinimumLevel { get; set; } = LogLevel.Information;
     public Action<Exception>? InternalErrorHandler { get; set; }
@@ -70,6 +72,12 @@ public sealed class LogConfigBuilder
         _sinks.Clear();
     }
 
+    public void CaptureUnhandledExceptions(bool observeTaskExceptions = false)
+    {
+        _captureUnhandledExceptions = true;
+        _observeTaskExceptions = observeTaskExceptions;
+    }
+
     public void WatchEnvironmentVariable(string name = "LOGSMITH_LEVEL", TimeSpan? pollInterval = null)
     {
         var interval = pollInterval ?? TimeSpan.FromSeconds(5);
@@ -93,6 +101,7 @@ public sealed class LogConfigBuilder
             for (int i = 0; i < _monitorFactories.Count; i++)
                 monitors[i] = _monitorFactories[i]();
         }
-        return new LogConfig(MinimumLevel, _categoryOverrides, sinkSet, InternalErrorHandler, monitors);
+        return new LogConfig(MinimumLevel, _categoryOverrides, sinkSet, InternalErrorHandler, monitors,
+            _captureUnhandledExceptions, _observeTaskExceptions);
     }
 }
