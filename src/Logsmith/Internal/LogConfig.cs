@@ -9,19 +9,25 @@ internal sealed class LogConfig
     internal readonly SinkSet Sinks;
     internal readonly Action<Exception>? ErrorHandler;
     internal readonly IDisposable[]? Monitors;
+    internal readonly bool CaptureUnhandledExceptions;
+    internal readonly bool ObserveTaskExceptions;
 
     internal LogConfig(
         LogLevel minimumLevel,
         Dictionary<string, LogLevel> categoryOverrides,
         SinkSet sinks,
         Action<Exception>? errorHandler = null,
-        IDisposable[]? monitors = null)
+        IDisposable[]? monitors = null,
+        bool captureUnhandledExceptions = false,
+        bool observeTaskExceptions = false)
     {
         MinimumLevel = minimumLevel;
         CategoryOverrides = categoryOverrides.ToFrozenDictionary();
         Sinks = sinks;
         ErrorHandler = errorHandler;
         Monitors = monitors;
+        CaptureUnhandledExceptions = captureUnhandledExceptions;
+        ObserveTaskExceptions = observeTaskExceptions;
     }
 
     internal void DisposeMonitors()
