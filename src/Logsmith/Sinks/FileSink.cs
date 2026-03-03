@@ -20,8 +20,9 @@ public class FileSink : BufferedLogSink
     public FileSink(string path, LogLevel minimumLevel = LogLevel.Trace,
                     long maxFileSizeBytes = 10 * 1024 * 1024,
                     ILogFormatter? formatter = null, bool shared = false,
-                    RollingInterval rollingInterval = RollingInterval.None)
-        : base(minimumLevel)
+                    RollingInterval rollingInterval = RollingInterval.None,
+                    TimeSpan? drainTimeout = null)
+        : base(minimumLevel, drainTimeout: drainTimeout)
     {
         _basePath = Path.GetFullPath(path);
         _maxFileSizeBytes = maxFileSizeBytes;
