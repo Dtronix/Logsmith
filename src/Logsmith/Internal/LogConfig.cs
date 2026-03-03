@@ -32,4 +32,10 @@ internal sealed class LogConfig
             try { monitor.Dispose(); } catch { }
         }
     }
+
+    internal async ValueTask DisposeAllAsync()
+    {
+        DisposeMonitors();
+        await Sinks.DisposeSinksAsync();
+    }
 }
