@@ -23,12 +23,22 @@ public abstract class BufferedLogSink : ILogSink, IFlushableLogSink, IAsyncDispo
     private readonly Task _drainTask;
     private readonly CancellationTokenSource _cts = new();
     private readonly TimeSpan _drainTimeout;
+    private readonly Action<Exception>? _errorHandler;
+
+    private long _droppedCount;
+    private long _lastDropNotifyTicks;
+
+    /// <summary>
+    /// Total number of log messages dropped because the bounded channel was full.
+    /// </summary>
+    public long DroppedCount => Volatile.Read(ref _droppedCount);
 
     protected BufferedLogSink(LogLevel minimumLevel = LogLevel.Trace, int capacity = 1024,
-                              TimeSpan? drainTimeout = null)
+                              TimeSpan? drainTimeout = null, Action<Exception>? errorHandler = null)
     {
         MinimumLevel = minimumLevel;
         _drainTimeout = drainTimeout ?? TimeSpan.FromSeconds(30);
+        _errorHandler = errorHandler;
         _channel = Channel.CreateBounded<BufferedEntry>(new BoundedChannelOptions(capacity)
         {
             FullMode = BoundedChannelFullMode.Wait,
@@ -47,7 +57,21 @@ public abstract class BufferedLogSink : ILogSink, IFlushableLogSink, IAsyncDispo
         var buffered = new BufferedEntry(entry, rented, utf8Message.Length);
 
         if (!_channel.Writer.TryWrite(buffered))
+        {
             ArrayPool<byte>.Shared.Return(rented);
+            var count = Interlocked.Increment(ref _droppedCount);
+
+            // Notify on first drop, then at most once per second
+            var now = Environment.TickCount64;
+            var lastNotify = Volatile.Read(ref _lastDropNotifyTicks);
+            if (count == 1 || now - lastNotify >= 1000)
+            {
+                if (Interlocked.CompareExchange(ref _lastDropNotifyTicks, now, lastNotify) == lastNotify)
+                {
+                    _errorHandler?.Invoke(new LogDroppedException(count));
+                }
+            }
+        }
     }
 
     protected abstract Task WriteBufferedAsync(BufferedEntry entry, CancellationToken ct);
