@@ -84,6 +84,35 @@ public static class LogManager
         ShutdownAsync(timeout).AsTask().GetAwaiter().GetResult();
     }
 
+    public static async ValueTask FlushAsync(TimeSpan? timeout = null)
+    {
+        var config = _config;
+        if (config is null) return;
+
+        CancellationTokenSource? cts = timeout.HasValue
+            ? new CancellationTokenSource(timeout.Value)
+            : null;
+
+        try
+        {
+            var token = cts?.Token ?? CancellationToken.None;
+            var tasks = new List<Task>();
+
+            foreach (var sink in config.Sinks.AllSinks)
+            {
+                if (sink is IFlushableLogSink flushable)
+                    tasks.Add(flushable.FlushAsync(token).AsTask());
+            }
+
+            if (tasks.Count > 0)
+                await Task.WhenAll(tasks);
+        }
+        finally
+        {
+            cts?.Dispose();
+        }
+    }
+
     public static bool IsEnabled(LogLevel level)
     {
         var config = _config;

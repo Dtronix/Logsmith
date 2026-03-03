@@ -3,12 +3,19 @@ using System.Threading.Channels;
 
 namespace Logsmith.Sinks;
 
-public abstract class BufferedLogSink : ILogSink, IAsyncDisposable
+public abstract class BufferedLogSink : ILogSink, IFlushableLogSink, IAsyncDisposable
 {
     protected readonly record struct BufferedEntry(
         LogEntry Entry,
         byte[] Utf8MessageBuffer,
-        int Utf8MessageLength);
+        int Utf8MessageLength,
+        TaskCompletionSource? FlushCompletion = null)
+    {
+        internal bool IsFlushSentinel => FlushCompletion is not null;
+
+        internal static BufferedEntry CreateFlushSentinel(TaskCompletionSource tcs)
+            => new(default, Array.Empty<byte>(), 0, tcs);
+    };
 
     protected LogLevel MinimumLevel { get; }
 
@@ -45,12 +52,29 @@ public abstract class BufferedLogSink : ILogSink, IAsyncDisposable
 
     protected abstract Task WriteBufferedAsync(BufferedEntry entry, CancellationToken ct);
 
+    public ValueTask FlushAsync(CancellationToken cancellationToken = default)
+    {
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sentinel = BufferedEntry.CreateFlushSentinel(tcs);
+
+        if (!_channel.Writer.TryWrite(sentinel))
+            tcs.SetResult(); // channel completed or full — nothing to flush
+
+        return new ValueTask(tcs.Task.WaitAsync(cancellationToken));
+    }
+
     private async Task DrainAsync()
     {
         try
         {
             await foreach (var entry in _channel.Reader.ReadAllAsync(_cts.Token))
             {
+                if (entry.IsFlushSentinel)
+                {
+                    entry.FlushCompletion!.SetResult();
+                    continue;
+                }
+
                 try
                 {
                     await WriteBufferedAsync(entry, _cts.Token);
