@@ -32,14 +32,14 @@ public class StreamSink : BufferedLogSink
 
         var formatted = buf.WrittenMemory.ToArray();
 
-        await _stream.WriteAsync(formatted, ct);
-        await _stream.FlushAsync(ct);
+        await _stream.WriteAsync(formatted, ct).ConfigureAwait(false);
+        await _stream.FlushAsync(ct).ConfigureAwait(false);
     }
 
     protected override async ValueTask OnDisposeAsync()
     {
-        await _stream.FlushAsync();
+        await _stream.FlushAsync().ConfigureAwait(false);
         if (!_leaveOpen)
-            await _stream.DisposeAsync();
+            await _stream.DisposeAsync().ConfigureAwait(false);
     }
 }

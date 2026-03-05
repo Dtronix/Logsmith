@@ -54,7 +54,7 @@ public static class LogManager
         StartCapturingExceptions(_config);
 
         if (old is not null)
-            await old.DisposeAllAsync();
+            await old.DisposeAllAsync().ConfigureAwait(false);
     }
 
     public static async ValueTask ShutdownAsync(TimeSpan? timeout = null)
@@ -72,14 +72,14 @@ public static class LogManager
 
         if (timeout is null)
         {
-            await old.DisposeAllAsync();
+            await old.DisposeAllAsync().ConfigureAwait(false);
         }
         else
         {
             using var cts = new CancellationTokenSource(timeout.Value);
             try
             {
-                await old.DisposeAllAsync().AsTask().WaitAsync(cts.Token);
+                await old.DisposeAllAsync().AsTask().WaitAsync(cts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -114,7 +114,7 @@ public static class LogManager
             }
 
             if (tasks.Count > 0)
-                await Task.WhenAll(tasks);
+                await Task.WhenAll(tasks).ConfigureAwait(false);
         }
         finally
         {

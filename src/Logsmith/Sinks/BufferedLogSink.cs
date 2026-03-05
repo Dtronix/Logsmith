@@ -91,7 +91,7 @@ public abstract class BufferedLogSink : ILogSink, IFlushableLogSink, IAsyncDispo
     {
         try
         {
-            await foreach (var entry in _channel.Reader.ReadAllAsync(_cts.Token))
+            await foreach (var entry in _channel.Reader.ReadAllAsync(_cts.Token).ConfigureAwait(false))
             {
                 if (entry.IsFlushSentinel)
                 {
@@ -101,7 +101,7 @@ public abstract class BufferedLogSink : ILogSink, IFlushableLogSink, IAsyncDispo
 
                 try
                 {
-                    await WriteBufferedAsync(entry, _cts.Token);
+                    await WriteBufferedAsync(entry, _cts.Token).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -125,23 +125,23 @@ public abstract class BufferedLogSink : ILogSink, IFlushableLogSink, IAsyncDispo
 
         if (_drainTimeout == Timeout.InfiniteTimeSpan)
         {
-            await _drainTask;
+            await _drainTask.ConfigureAwait(false);
         }
         else
         {
             using var timeoutCts = new CancellationTokenSource(_drainTimeout);
             try
             {
-                await _drainTask.WaitAsync(timeoutCts.Token);
+                await _drainTask.WaitAsync(timeoutCts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
                 // Drain timed out — cancel the drain loop so it stops processing
-                await _cts.CancelAsync();
+                await _cts.CancelAsync().ConfigureAwait(false);
             }
         }
 
         _cts.Dispose();
-        await OnDisposeAsync();
+        await OnDisposeAsync().ConfigureAwait(false);
     }
 }

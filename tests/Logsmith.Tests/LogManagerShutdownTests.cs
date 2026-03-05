@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using Logsmith.Formatting;
 using Logsmith.Sinks;
@@ -177,6 +178,60 @@ public class LogManagerShutdownTests
         public void Dispose() => Disposed = true;
     }
 
+    [Test]
+    public void Shutdown_Sync_OnSingleThreadedSyncContext_WithBufferedSink_Completes()
+    {
+        // This test reproduces the STA deadlock: a single-threaded SynchronizationContext
+        // (like Avalonia/WPF/WinForms) will deadlock on Shutdown() if the async chain
+        // captures and posts back to that context.
+        //
+        // If this test times out, the deadlock hypothesis is confirmed and
+        // ConfigureAwait(false) is needed throughout the async dispose chain.
+
+        using var ms = new MemoryStream();
+        LogManager.Initialize(c =>
+            c.AddStreamSink(ms, leaveOpen: true, formatter: NullLogFormatter.Instance));
+
+        DispatchTestMessage(LogLevel.Information, "sta-test");
+
+        Exception? caught = null;
+        var completed = false;
+
+        var thread = new Thread(() =>
+        {
+            var ctx = new SingleThreadSynchronizationContext();
+            SynchronizationContext.SetSynchronizationContext(ctx);
+
+            ctx.Post(_ =>
+            {
+                try
+                {
+                    LogManager.Shutdown();
+                    completed = true;
+                }
+                catch (Exception ex)
+                {
+                    caught = ex;
+                }
+                finally
+                {
+                    ctx.Complete();
+                }
+            }, null);
+
+            ctx.RunOnCurrentThread();
+        });
+
+        thread.IsBackground = true;
+        thread.Start();
+
+        var finished = thread.Join(TimeSpan.FromSeconds(10));
+
+        Assert.That(finished, Is.True, "Shutdown() deadlocked on single-threaded SynchronizationContext");
+        Assert.That(caught, Is.Null, "Shutdown() threw an unexpected exception");
+        Assert.That(completed, Is.True);
+    }
+
     private sealed class HangingSink : BufferedLogSink
     {
         public HangingSink(TimeSpan drainTimeout)
@@ -187,5 +242,39 @@ public class LogManagerShutdownTests
             // Simulate a hung write that only responds to cancellation
             await Task.Delay(Timeout.InfiniteTimeSpan, ct);
         }
+    }
+
+    /// <summary>
+    /// Minimal single-threaded SynchronizationContext that mimics STA dispatchers
+    /// (Avalonia, WPF, WinForms). Posts are queued and pumped on the owning thread.
+    /// </summary>
+    private sealed class SingleThreadSynchronizationContext : SynchronizationContext
+    {
+        private readonly BlockingCollection<(SendOrPostCallback Callback, object? State)> _queue = new();
+
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+            _queue.Add((d, state));
+        }
+
+        public override void Send(SendOrPostCallback d, object? state)
+        {
+            // For this test, Send just posts and blocks — matches STA behavior
+            var tcs = new TaskCompletionSource();
+            _queue.Add((s =>
+            {
+                try { d(s); tcs.SetResult(); }
+                catch (Exception ex) { tcs.SetException(ex); }
+            }, state));
+            tcs.Task.GetAwaiter().GetResult();
+        }
+
+        public void RunOnCurrentThread()
+        {
+            foreach (var (callback, state) in _queue.GetConsumingEnumerable())
+                callback(state);
+        }
+
+        public void Complete() => _queue.CompleteAdding();
     }
 }

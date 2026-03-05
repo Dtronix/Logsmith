@@ -122,7 +122,7 @@ public class FileSink : BufferedLogSink
             var entryPeriod = GetPeriodStart(entryTime, _rollingInterval);
             if (entryPeriod > _currentPeriodStart)
             {
-                await RollFileAsync(ct, GetTimeRolledName(entryPeriod));
+                await RollFileAsync(ct, GetTimeRolledName(entryPeriod)).ConfigureAwait(false);
                 _currentPeriodStart = entryPeriod;
                 _sizeRollCount = 0;
             }
@@ -132,13 +132,13 @@ public class FileSink : BufferedLogSink
         if (_currentSize + totalBytes > _maxFileSizeBytes && _currentSize > 0)
         {
             _sizeRollCount++;
-            await RollFileAsync(ct, GetSizeRolledName());
+            await RollFileAsync(ct, GetSizeRolledName()).ConfigureAwait(false);
         }
 
-        await _fileStream!.WriteAsync(prefixBytes, ct);
-        await _fileStream.WriteAsync(utf8Message, ct);
-        await _fileStream.WriteAsync(suffixBytes, ct);
-        await _fileStream.FlushAsync(ct);
+        await _fileStream!.WriteAsync(prefixBytes, ct).ConfigureAwait(false);
+        await _fileStream.WriteAsync(utf8Message, ct).ConfigureAwait(false);
+        await _fileStream.WriteAsync(suffixBytes, ct).ConfigureAwait(false);
+        await _fileStream.FlushAsync(ct).ConfigureAwait(false);
         _currentSize += totalBytes;
     }
 
@@ -168,8 +168,8 @@ public class FileSink : BufferedLogSink
     {
         if (_fileStream is not null)
         {
-            await _fileStream.FlushAsync();
-            await _fileStream.DisposeAsync();
+            await _fileStream.FlushAsync().ConfigureAwait(false);
+            await _fileStream.DisposeAsync().ConfigureAwait(false);
             _fileStream = null;
         }
 
@@ -206,8 +206,8 @@ public class FileSink : BufferedLogSink
     {
         if (_fileStream is not null)
         {
-            await _fileStream.FlushAsync(ct);
-            await _fileStream.DisposeAsync();
+            await _fileStream.FlushAsync(ct).ConfigureAwait(false);
+            await _fileStream.DisposeAsync().ConfigureAwait(false);
             _fileStream = null;
         }
 
