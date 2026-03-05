@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
+using Logsmith.Generator.Emission;
 using Logsmith.Generator.Models;
 
 namespace Logsmith.Generator.Parsing;
@@ -10,6 +11,7 @@ internal static class ParameterClassifier
         IMethodSymbol method,
         Compilation compilation)
     {
+        var utf8SpanFormattable = compilation.GetTypeByMetadataName("System.IUtf8SpanFormattable");
         var results = new List<ParameterInfo>(method.Parameters.Length);
 
         for (int i = 0; i < method.Parameters.Length; i++)
@@ -21,11 +23,15 @@ internal static class ParameterClassifier
             bool isNullableReferenceType = param.NullableAnnotation == NullableAnnotation.Annotated
                 && !param.Type.IsValueType;
 
-            string typeFullName = isNullableValueType
-                ? ((INamedTypeSymbol)param.Type).TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
-                : param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            var underlyingType = isNullableValueType
+                ? ((INamedTypeSymbol)param.Type).TypeArguments[0]
+                : param.Type;
+
+            string typeFullName = underlyingType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
             string refKind = param.RefKind == RefKind.In ? "in " : "";
+
+            var serializationKind = ResolveSerializationKind(underlyingType, typeFullName, utf8SpanFormattable);
 
             results.Add(new ParameterInfo(
                 name: param.Name,
@@ -35,10 +41,25 @@ internal static class ParameterClassifier
                 isNullableReferenceType: isNullableReferenceType,
                 hasDefaultValue: param.HasExplicitDefaultValue,
                 defaultValue: param.HasExplicitDefaultValue ? param.ExplicitDefaultValue : null,
-                refKind: refKind));
+                refKind: refKind,
+                serializationKind: serializationKind));
         }
 
         return results;
+    }
+
+    private static SerializationKind ResolveSerializationKind(
+        ITypeSymbol type,
+        string typeFullName,
+        INamedTypeSymbol? utf8SpanFormattable)
+    {
+        if (typeFullName == "global::System.String" || typeFullName == "string")
+            return SerializationKind.String;
+
+        if (utf8SpanFormattable != null && IsOrImplements(type, utf8SpanFormattable))
+            return SerializationKind.Utf8SpanFormattable;
+
+        return SerializationKind.ToString;
     }
 
     private static ParameterKind ClassifyParameter(
