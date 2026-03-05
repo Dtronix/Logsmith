@@ -42,6 +42,6 @@ internal sealed class LogConfig
     internal async ValueTask DisposeAllAsync()
     {
         DisposeMonitors();
-        await Sinks.DisposeSinksAsync();
+        await Sinks.DisposeSinksAsync().ConfigureAwait(false);
     }
 }

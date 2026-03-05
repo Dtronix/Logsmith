@@ -37,7 +37,7 @@ internal sealed class SinkSet
             try
             {
                 if (sink is IAsyncDisposable asyncDisposable)
-                    await asyncDisposable.DisposeAsync();
+                    await asyncDisposable.DisposeAsync().ConfigureAwait(false);
                 else
                     sink.Dispose();
             }
