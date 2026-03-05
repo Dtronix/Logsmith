@@ -1,6 +1,6 @@
 namespace Logsmith.Generator.Models;
 
-public enum ParameterKind
+internal enum ParameterKind
 {
     MessageParam,
     Sink,

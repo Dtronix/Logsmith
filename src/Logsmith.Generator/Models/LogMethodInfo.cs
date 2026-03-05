@@ -4,7 +4,7 @@ using Microsoft.CodeAnalysis;
 
 namespace Logsmith.Generator.Models;
 
-public sealed class LogMethodInfo
+internal sealed class LogMethodInfo
 {
     public string ContainingNamespace { get; }
     public IReadOnlyList<ContainingTypeInfo> ContainingTypeChain { get; }

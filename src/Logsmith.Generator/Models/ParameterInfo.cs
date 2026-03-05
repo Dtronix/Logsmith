@@ -2,7 +2,7 @@ using Logsmith.Generator.Emission;
 
 namespace Logsmith.Generator.Models;
 
-public sealed class ParameterInfo
+internal sealed class ParameterInfo
 {
     public string Name { get; }
     public string TypeFullName { get; }

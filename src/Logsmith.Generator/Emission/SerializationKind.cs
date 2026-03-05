@@ -1,6 +1,6 @@
 namespace Logsmith.Generator.Emission;
 
-public enum SerializationKind
+internal enum SerializationKind
 {
     Utf8SpanFormattable,
     SpanFormattable,
