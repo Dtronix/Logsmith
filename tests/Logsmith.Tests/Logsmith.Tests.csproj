@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Logsmith/Logsmith.csproj" />
+    <ProjectReference Include="../../src/Logsmith.Generator/Logsmith.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>

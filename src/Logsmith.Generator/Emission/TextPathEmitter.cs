@@ -68,37 +68,32 @@ internal static class TextPathEmitter
             return $"writer.Write(global::System.Text.Json.JsonSerializer.SerializeToUtf8Bytes({accessor}));";
         }
 
-        // Type serialization priority: the actual kind is resolved at pipeline time
-        // and stored in TypeFullName. Here we use simple heuristics based on the type.
         if (param.TypeFullName == "global::System.String" || param.TypeFullName == "string")
         {
             return $"writer.WriteString({accessor});";
         }
 
-        // Standard format specifier — pass to WriteFormatted overload
-        if (formatSpecifier != null)
+        if (param.TypeFullName == "global::System.Boolean" || param.TypeFullName == "bool")
         {
-            return $"writer.WriteFormatted({accessor}, \"{EscapeUtf8Literal(formatSpecifier)}\");";
+            return $"writer.Write({accessor} ? \"true\"u8 : \"false\"u8);";
         }
 
-        // For IUtf8SpanFormattable types (most numeric primitives), use WriteFormatted
-        // For everything else, fall back to WriteString with ToString
-        // The actual resolution happens via SerializationResolver at pipeline time,
-        // but for code emission we use the resolved kind stored on the model.
-        return $"writer.WriteFormatted({accessor});";
+        // Standard format specifier
+        if (formatSpecifier != null)
+        {
+            if (param.SerializationKind == SerializationKind.Utf8SpanFormattable)
+                return $"writer.WriteFormatted({accessor}, \"{EscapeUtf8Literal(formatSpecifier)}\");";
+
+            return $"writer.WriteString({accessor}.ToString(\"{EscapeUtf8Literal(formatSpecifier)}\"));";
+        }
+
+        if (param.SerializationKind == SerializationKind.Utf8SpanFormattable)
+            return $"writer.WriteFormatted({accessor});";
+
+        return $"writer.WriteString({accessor}.ToString());";
     }
 
-    internal static SerializationKind? ResolveSerializationKind(string typeFullName, bool isString)
-    {
-        if (isString || typeFullName == "global::System.String" || typeFullName == "string")
-            return SerializationKind.String;
-
-        // For source generator, we resolve against the compilation's type symbols.
-        // This method is a simplified fallback; the full resolution uses ITypeSymbol checks.
-        return SerializationKind.Utf8SpanFormattable;
-    }
-
-    private static string EscapeUtf8Literal(string text)
+private static string EscapeUtf8Literal(string text)
     {
         return text
             .Replace("\\", "\\\\")

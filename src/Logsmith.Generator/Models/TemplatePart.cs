@@ -1,6 +1,6 @@
 namespace Logsmith.Generator.Models;
 
-public sealed class TemplatePart
+internal sealed class TemplatePart
 {
     public bool IsPlaceholder { get; }
     public string Text { get; }

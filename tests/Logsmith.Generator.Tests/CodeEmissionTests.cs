@@ -341,6 +341,135 @@ public class CodeEmissionTests
         Assert.That(generated, Does.Contain("LogManager.IsEnabled(global::Logsmith.LogLevel.Information, \"HTTP\")"));
     }
 
+    [Test]
+    public void BoolParam_EmitsUtf8Literal_NotWriteFormatted()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Active={active}")]
+                static partial void LogActive(bool active);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        Assert.That(generated, Does.Contain("\"true\"u8"));
+        Assert.That(generated, Does.Contain("\"false\"u8"));
+        Assert.That(generated, Does.Not.Contain("WriteFormatted(active"));
+    }
+
+    [Test]
+    public void NullableBoolParam_EmitsUtf8Literal_WithHasValueGuard()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Active={active}")]
+                static partial void LogActive(bool? active);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        Assert.That(generated, Does.Contain("HasValue"));
+        Assert.That(generated, Does.Contain("\"true\"u8"));
+        Assert.That(generated, Does.Contain("\"false\"u8"));
+    }
+
+    [Test]
+    public void EnumParam_EmitsToString_NotWriteFormatted()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public enum Status { Active, Inactive }
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Status={status}")]
+                static partial void LogStatus(Status status);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        Assert.That(generated, Does.Contain("ToString()"));
+        Assert.That(generated, Does.Not.Contain("WriteFormatted(status"));
+    }
+
+    [Test]
+    public void CustomStruct_EmitsToString_NotWriteFormatted()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public struct Point { public int X; public int Y; public override string ToString() => $"({X},{Y})"; }
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Pos={pos}")]
+                static partial void LogPos(Point pos);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        Assert.That(generated, Does.Contain("WriteString(pos.ToString())"));
+        Assert.That(generated, Does.Not.Contain("WriteFormatted(pos"));
+    }
+
+    [Test]
+    public void NonFormattableTypes_GeneratedCode_CompilesCleanly()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public enum Color { Red, Green, Blue }
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Flag={flag} Color={color}")]
+                static partial void LogMixed(bool flag, Color color);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var (result, diagnostics) = GeneratorTestHelper.RunGeneratorWithDiagnostics(compilation);
+
+        var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+        Assert.That(errors, Is.Empty, $"Generated code has compilation errors: {string.Join("\n", errors)}");
+    }
+
+    [Test]
+    public void IntParam_StillUsesWriteFormatted()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public static partial class Log
+            {
+                [LogMessage(LogLevel.Information, "Count={count}")]
+                static partial void LogCount(int count);
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        var generated = GetGeneratedSource(result, "TestNs.Log");
+        Assert.That(generated, Does.Contain("WriteFormatted(count)"));
+    }
+
     private static string GetGeneratedSource(GeneratorRunResult result, string hintPrefix)
     {
         var source = result.GeneratedSources
