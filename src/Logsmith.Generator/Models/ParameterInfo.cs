@@ -1,6 +1,8 @@
+using Logsmith.Generator.Emission;
+
 namespace Logsmith.Generator.Models;
 
-public sealed class ParameterInfo
+internal sealed class ParameterInfo
 {
     public string Name { get; }
     public string TypeFullName { get; }
@@ -10,6 +12,7 @@ public sealed class ParameterInfo
     public bool HasDefaultValue { get; }
     public object? DefaultValue { get; }
     public string RefKind { get; }
+    public SerializationKind SerializationKind { get; }
 
     public ParameterInfo(
         string name,
@@ -19,7 +22,8 @@ public sealed class ParameterInfo
         bool isNullableReferenceType,
         bool hasDefaultValue,
         object? defaultValue,
-        string refKind = "")
+        string refKind = "",
+        SerializationKind serializationKind = SerializationKind.Utf8SpanFormattable)
     {
         Name = name;
         TypeFullName = typeFullName;
@@ -29,5 +33,6 @@ public sealed class ParameterInfo
         HasDefaultValue = hasDefaultValue;
         DefaultValue = defaultValue;
         RefKind = refKind;
+        SerializationKind = serializationKind;
     }
 }
