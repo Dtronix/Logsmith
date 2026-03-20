@@ -2,37 +2,59 @@ using System.Text;
 using System.Text.Json;
 using SampleLib.Logging;
 
-// Wire up a structured logger implementation
-LogsmithOutput.Logger = new StructuredConsoleLogger();
-
-// Use the generated log methods
-SampleLog.AppStarted(42);
-SampleLog.ProcessingItem("item-001", 5);
-
-// Structured parameters
 var tags = new Dictionary<string, string>
 {
     ["region"] = "us-west-2",
     ["env"] = "staging"
 };
+
+// ── 1. Text-only logger ─────────────────────────────────────────────
+Console.WriteLine("═══ Text-only logging (ILogsmithLogger) ═══");
+Console.WriteLine();
+
+LogsmithOutput.Logger = new ConsoleLogsmithLogger();
+
+SampleLog.AppStarted(42);
+SampleLog.ProcessingItem("item-001", 5);
 SampleLog.DeploymentInfo("v2.1.0", tags);
 
-// Exception logging
-try
-{
-    throw new InvalidOperationException("test error");
-}
-catch (Exception ex)
-{
-    SampleLog.OperationFailed("TestOp", ex);
-}
+try { throw new InvalidOperationException("test error"); }
+catch (Exception ex) { SampleLog.OperationFailed("TestOp", ex); }
 
+// ── 2. Structured logger — same calls now also emit JSON properties ─
+Console.WriteLine();
+Console.WriteLine("═══ Text + Structured logging (IStructuredLogsmithLogger) ═══");
+Console.WriteLine();
+
+LogsmithOutput.Logger = new StructuredConsoleLogger();
+
+SampleLog.AppStarted(42);
+SampleLog.ProcessingItem("item-001", 5);
+SampleLog.DeploymentInfo("v2.1.0", tags);
+
+try { throw new InvalidOperationException("test error"); }
+catch (Exception ex) { SampleLog.OperationFailed("TestOp", ex); }
+
+Console.WriteLine();
 Console.WriteLine("Abstraction mode sample completed.");
 
 /// <summary>
-/// Consumer-provided IStructuredLogsmithLogger implementation.
-/// Receives both the pre-formatted UTF-8 message and typed structured properties.
-/// In a real app, this would bridge to the consumer's logging framework.
+/// Text-only logger — receives pre-formatted UTF-8 messages.
+/// </summary>
+sealed class ConsoleLogsmithLogger : ILogsmithLogger
+{
+    public bool IsEnabled(LogLevel level, string category) => true;
+
+    public void Write(in LogEntry entry, ReadOnlySpan<byte> utf8Message)
+    {
+        var message = Encoding.UTF8.GetString(utf8Message);
+        Console.WriteLine($"[{entry.Level}] {entry.Category}: {message}");
+    }
+}
+
+/// <summary>
+/// Structured logger — receives both the text message and typed properties.
+/// The generator dispatches to WriteStructured when it detects this interface.
 /// </summary>
 sealed class StructuredConsoleLogger : IStructuredLogsmithLogger
 {
@@ -44,11 +66,6 @@ sealed class StructuredConsoleLogger : IStructuredLogsmithLogger
         Console.WriteLine($"[{entry.Level}] {entry.Category}: {message}");
     }
 
-    /// <summary>
-    /// Structured path — the generator dispatches here when it detects
-    /// that the logger implements IStructuredLogsmithLogger. The propertyWriter
-    /// delegate writes each log parameter as a named JSON property.
-    /// </summary>
     public void WriteStructured<TState>(
         in LogEntry entry,
         ReadOnlySpan<byte> utf8Message,
@@ -56,10 +73,11 @@ sealed class StructuredConsoleLogger : IStructuredLogsmithLogger
         WriteProperties<TState> propertyWriter)
         where TState : allows ref struct
     {
+        // Text output
         var message = Encoding.UTF8.GetString(utf8Message);
         Console.WriteLine($"[{entry.Level}] {entry.Category}: {message}");
 
-        // Also emit structured JSON properties
+        // Structured JSON properties
         using var stream = new MemoryStream();
         using var writer = new Utf8JsonWriter(stream);
         writer.WriteStartObject();
