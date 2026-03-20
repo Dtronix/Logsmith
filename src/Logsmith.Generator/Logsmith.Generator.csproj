@@ -4,15 +4,17 @@
     <IsRoslynComponent>true</IsRoslynComponent>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
 
-    <!-- NuGet packaging (standalone analyzer-only package) -->
+    <!-- NuGet packaging: thin meta-package (no DLLs shipped) -->
     <PackageId>Logsmith.Generator</PackageId>
     <IsPackable>true</IsPackable>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
-    <IncludeBuildOutput>true</IncludeBuildOutput>
-    <BuildOutputTargetFolder>analyzers/dotnet/cs</BuildOutputTargetFolder>
-    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
     <DevelopmentDependency>true</DevelopmentDependency>
-    <Description>Logsmith source generator (standalone analyzer-only package)</Description>
+    <Description>Logsmith source generator (standalone/abstraction mode meta-package). Depends on Logsmith for the generator and build assets.</Description>
+
+    <!-- Use .nuspec for NuGet package to declare dependency on Logsmith with asset filtering -->
+    <NuspecFile>Logsmith.Generator.nuspec</NuspecFile>
+    <NuspecProperties>version=$(Version);authors=$(Authors);projectUrl=$(PackageProjectUrl);repositoryUrl=$(RepositoryUrl)</NuspecProperties>
   </PropertyGroup>
 
   <ItemGroup>
@@ -35,10 +37,5 @@
     <Compile Remove="AbstractionSources/**/*.cs" />
     <EmbeddedResource Include="AbstractionSources/**/*.cs"
                       Link="AbstractionSources/%(RecursiveDir)%(Filename)%(Extension)" />
-  </ItemGroup>
-
-  <!-- MSBuild props for CompilerVisibleProperty declarations -->
-  <ItemGroup>
-    <None Include="build\**\*" Pack="true" PackagePath="build" />
   </ItemGroup>
 </Project>
