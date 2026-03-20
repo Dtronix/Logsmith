@@ -7,5 +7,9 @@ internal enum ParameterKind
     Exception,
     CallerFile,
     CallerLine,
-    CallerMember
+    CallerMember,
+    /// <summary>
+    /// ILogsmithLogger explicit parameter (abstraction mode equivalent of Sink).
+    /// </summary>
+    AbstractionLogger
 }

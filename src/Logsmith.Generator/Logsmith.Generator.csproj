@@ -29,4 +29,16 @@
                       Exclude="../Logsmith/obj/**;../Logsmith/bin/**"
                       Link="EmbeddedSources/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
+
+  <!-- Embed abstraction mode source files (excluded from compilation) -->
+  <ItemGroup>
+    <Compile Remove="AbstractionSources/**/*.cs" />
+    <EmbeddedResource Include="AbstractionSources/**/*.cs"
+                      Link="AbstractionSources/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- MSBuild props for CompilerVisibleProperty declarations -->
+  <ItemGroup>
+    <None Include="build\**\*" Pack="true" PackagePath="build" />
+  </ItemGroup>
 </Project>
