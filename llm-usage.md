@@ -4,11 +4,14 @@ Zero-allocation, source-generator-driven C# logging. .NET 10+.
 
 ## Packages
 
-| Package | Use |
-|---------|-----|
-| `Logsmith` | Shared mode: runtime + bundled generator |
-| `Logsmith.Generator` | Standalone: all types embedded as `internal`, no runtime DLL |
-| `Logsmith.Extensions.Logging` | MEL bridge: routes `ILogger` through Logsmith sinks |
+| Package | Default Mode | Use |
+|---------|-------------|-----|
+| `Logsmith` | Shared | Runtime + bundled generator. Public types shared across projects. |
+| `Logsmith.Generator` | Standalone | Thin meta-package. All types embedded as `internal`, no runtime DLL. |
+| `Logsmith.Extensions.Logging` | — | MEL bridge: routes `ILogger` through Logsmith sinks |
+
+Mode controlled by `<LogsmithMode>` MSBuild property: `Shared`, `Standalone`, or `Abstraction`.
+Standalone/Abstraction require `PrivateAssets="all"` on the Logsmith PackageReference.
 
 ## Log Methods
 
@@ -51,6 +54,7 @@ public static partial class Log
 - **`Exception`** — attached to `LogEntry.Exception`, excluded from message text
 - **`[CallerFilePath]`/`[CallerLineNumber]`/`[CallerMemberName]`** — compiler-filled caller info
 - **`ILogSink`** (first param) — routes directly to that sink, bypasses LogManager
+- **`ILogsmithLogger`** (first param, abstraction mode) — routes to that logger, bypasses LogsmithOutput
 - **`in T`** — pass large structs by ref to avoid copies
 
 ### Message Templates
@@ -79,6 +83,8 @@ LogManager.Initialize(c =>
 ```
 
 `LogManager.Reconfigure(...)` — swap config at runtime (same builder API).
+`await LogManager.FlushAsync()` — flush all `IFlushableLogSink` instances.
+`await LogManager.ShutdownAsync(timeout?)` — flush + dispose all sinks. Also available as `LogManager.Shutdown()`.
 
 ### LogConfigBuilder API
 
@@ -96,6 +102,7 @@ LogManager.Initialize(c =>
 | `InternalErrorHandler` | `Action<Exception>` for sink errors |
 | `WatchEnvironmentVariable(name?, pollInterval?)` | Polls env var, updates minimum level |
 | `WatchConfigFile(path)` | Watches JSON file, updates levels + category overrides |
+| `CaptureUnhandledExceptions(observeTaskExceptions?)` | Wire AppDomain + TaskScheduler exception capture |
 
 ## Scoped Context
 
@@ -110,6 +117,26 @@ using (LogScope.Push([new("UserId", uid), new("TenantId", tid)]))
 ```
 
 Async-local linked-list stack. `EnumerateProperties()` returns `ScopeEnumerator` ref struct (zero-alloc).
+
+## Abstraction Mode (Library Authors)
+
+```xml
+<PropertyGroup>
+    <LogsmithMode>Abstraction</LogsmithMode>
+    <LogsmithNamespace>MyLib.Logging</LogsmithNamespace> <!-- optional, defaults to {RootNamespace}.Logging -->
+</PropertyGroup>
+<PackageReference Include="Logsmith" Version="0.5.0" PrivateAssets="all" />
+```
+
+Generates public types in configured namespace: `ILogsmithLogger`, `IStructuredLogsmithLogger`, `LogsmithOutput`, `LogLevel`, `LogEntry`, `LogScope`, `WriteProperties<TState>`. All infrastructure is internal.
+
+Consumer wires at startup:
+```csharp
+using MyLib.Logging;
+LogsmithOutput.Logger = new MyLogger(); // ILogsmithLogger or IStructuredLogsmithLogger
+```
+
+Generated methods dispatch via `LogsmithOutput.Logger`. Runtime type-check for `IStructuredLogsmithLogger` → `WriteStructured` when available, else `Write`.
 
 ## MEL Bridge
 
@@ -139,13 +166,17 @@ Default: `[12:34:56.789 INF Category] Message`. File adds date prefix.
 Custom: implement `ILogFormatter` (`FormatPrefix`/`FormatSuffix` to `IBufferWriter<byte>`).
 `NullLogFormatter.Instance` — raw message only.
 
-## Compile-Time Stripping
+## MSBuild Properties
 
 ```xml
-<LogsmithConditionalLevel>Debug</LogsmithConditionalLevel>
+<LogsmithMode>Shared</LogsmithMode>                         <!-- Shared | Standalone | Abstraction -->
+<LogsmithConditionalLevel>Debug</LogsmithConditionalLevel>   <!-- Compile-time stripping threshold -->
+<LogsmithNamespace>MyLib.Logging</LogsmithNamespace>         <!-- Abstraction mode namespace -->
 ```
 
-Methods at/below threshold get `[Conditional("DEBUG")]` — removed in Release. Override with `AlwaysEmit = true`.
+## Compile-Time Stripping
+
+Methods at/below `LogsmithConditionalLevel` get `[Conditional("DEBUG")]` — removed in Release. Override with `AlwaysEmit = true`.
 
 ## Diagnostics
 
@@ -158,6 +189,8 @@ Methods at/below threshold get `[Conditional("DEBUG")]` — removed in Release. 
 | LSMITH005 | Warn | Caller attribute + template placeholder conflict |
 | LSMITH006 | Warn | `:json` on primitive type |
 | LSMITH007 | Warn | Both SampleRate and MaxPerSecond set |
+| LSMITH008 | Warn | ILogSink explicit sink in abstraction mode (use ILogsmithLogger) |
+| LSMITH010 | Warn | Standalone/Abstraction without PrivateAssets="all" |
 
 ## LogEntry Fields
 
