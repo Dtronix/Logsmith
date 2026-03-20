@@ -59,4 +59,20 @@ internal static class DiagnosticDescriptors
         category: "Logsmith",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
+
+    internal static readonly DiagnosticDescriptor LSMITH008 = new(
+        id: "LSMITH008",
+        title: "ILogSink not available in abstraction mode",
+        messageFormat: "ILogSink explicit sink parameter on '{0}' is not available in abstraction mode — use ILogsmithLogger as the parameter type instead",
+        category: "Logsmith",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    internal static readonly DiagnosticDescriptor LSMITH009 = new(
+        id: "LSMITH009",
+        title: "Abstraction mode conflicts with shared mode",
+        messageFormat: "LogsmithAbstraction=true requires standalone mode — remove the Logsmith assembly reference or set LogsmithAbstraction=false",
+        category: "Logsmith",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }
