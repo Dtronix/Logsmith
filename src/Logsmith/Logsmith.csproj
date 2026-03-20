@@ -18,7 +18,22 @@
 
   <ItemGroup>
     <ProjectReference Include="../Logsmith.Generator/Logsmith.Generator.csproj"
-                      IncludeAssets="analyzers"
-                      PrivateAssets="none" />
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Ship .props files in NuGet package -->
+  <ItemGroup>
+    <None Include="build\**\*" Pack="true" PackagePath="build" />
+    <None Include="buildTransitive\**\*" Pack="true" PackagePath="buildTransitive" />
+  </ItemGroup>
+
+  <!-- Ship generator DLL in analyzers folder for NuGet consumers -->
+  <ItemGroup>
+    <None Include="../Logsmith.Generator/bin/$(Configuration)/netstandard2.0/Logsmith.Generator.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs"
+          Visible="false" />
   </ItemGroup>
 </Project>

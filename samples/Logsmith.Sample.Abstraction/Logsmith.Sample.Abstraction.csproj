@@ -8,7 +8,7 @@
     <RootNamespace>SampleLib</RootNamespace>
 
     <!-- Enable abstraction mode -->
-    <LogsmithAbstraction>true</LogsmithAbstraction>
+    <LogsmithMode>Abstraction</LogsmithMode>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,6 +18,5 @@
   </ItemGroup>
 
   <!-- Import CompilerVisibleProperty declarations (auto-included via NuGet, manual for ProjectReference) -->
-  <Import Project="../../src/Logsmith.Generator/build/Logsmith.Generator.props" />
-
+  <Import Project="../../src/Logsmith/build/Logsmith.props" />
 </Project>

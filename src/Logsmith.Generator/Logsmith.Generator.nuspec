@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>Logsmith.Generator</id>
+    <version>$version$</version>
+    <authors>$authors$</authors>
+    <license type="expression">MIT</license>
+    <projectUrl>$projectUrl$</projectUrl>
+    <repository type="git" url="$repositoryUrl$" />
+    <description>Logsmith source generator (standalone/abstraction mode meta-package). Depends on Logsmith for the generator and build assets.</description>
+    <tags>logging source-generator zero-allocation structured-logging dotnet</tags>
+    <readme>README.md</readme>
+    <icon>logo-small.png</icon>
+    <developmentDependency>true</developmentDependency>
+    <dependencies>
+      <group targetFramework=".NETStandard2.0">
+        <dependency id="Logsmith" version="[$version$]"
+                    include="analyzers,build,buildTransitive"
+                    exclude="compile,runtime,native,contentFiles" />
+      </group>
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="build\**\*" target="build" />
+    <file src="..\..\docs\images\logo-small.png" target="/" />
+    <file src="..\..\README.md" target="/" />
+  </files>
+</package>
