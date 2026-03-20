@@ -4,10 +4,14 @@ Zero-allocation, source-generator-driven C# logging library. .NET 10+.
 
 ## Architecture
 
-Three NuGet packages, two modes:
-- **Shared mode**: Reference `Logsmith` (runtime + generator). Generator emits only method bodies.
-- **Standalone mode**: Reference only `Logsmith.Generator` as analyzer. Generator embeds all runtime types as `internal`.
+Three NuGet packages, three modes controlled by `<LogsmithMode>` MSBuild property:
+- **Shared** (default for `Logsmith` package): Runtime + bundled generator. Generator emits only method bodies.
+- **Standalone** (default for `Logsmith.Generator` meta-package): Generator embeds all runtime types as `internal`. Zero runtime dependency.
+- **Abstraction** (explicit opt-in): Public logging interfaces (`ILogsmithLogger`, `IStructuredLogsmithLogger`, `LogsmithOutput`) + internal infrastructure. For library authors.
 - **MEL bridge**: Reference `Logsmith.Extensions.Logging` to route `Microsoft.Extensions.Logging` through Logsmith sinks.
+
+`Logsmith.Generator` is a thin meta-package (no DLLs) that depends on `Logsmith` with asset filtering (analyzers+build only).
+Standalone/Abstraction modes require `PrivateAssets="all"` on the Logsmith package reference (LSMITH010 warns if missing).
 
 Pipeline: `[LogMessage]` partial methods → Roslyn IncrementalGenerator → UTF-8 text path + JSON structured path.
 Generator emits `public const string CategoryName` on each log class for type-safe per-category configuration.
@@ -18,8 +22,8 @@ Generator emits `public const string CategoryName` on each log class for type-sa
 src/Logsmith/                    Runtime library (net10.0)
   LogLevel.cs                    enum byte: Trace=0..Critical=5, None=6
   LogEntry.cs                    readonly struct: Level,EventId,TimestampTicks,Category,Exception?,CallerFile?,CallerLine,CallerMember?,ThreadId,ThreadName?
-  LogManager.cs                  static: Initialize(), Reconfigure(), IsEnabled(), Dispatch<TState>(), SetMinimumLevel(), SetCategoryOverrides()
-  LogConfigBuilder.cs            Fluent builder: MinimumLevel, InternalErrorHandler, AddSink(), AddConsoleSink(), AddFileSink(), AddDebugSink(), AddStreamSink(), SetMinimumLevel(), ClearSinks(), WatchEnvironmentVariable(), WatchConfigFile()
+  LogManager.cs                  static: Initialize(), Reconfigure(), ReconfigureAsync(), Shutdown(), ShutdownAsync(), FlushAsync(), IsEnabled(), Dispatch<TState>(), SetMinimumLevel(), SetCategoryOverrides()
+  LogConfigBuilder.cs            Fluent builder: MinimumLevel, InternalErrorHandler, AddSink(), AddConsoleSink(), AddFileSink(), AddDebugSink(), AddStreamSink(), SetMinimumLevel(), ClearSinks(), WatchEnvironmentVariable(), WatchConfigFile(), CaptureUnhandledExceptions()
   LogScope.cs                    Ambient async-local scope: Push(key,value), Push(ROSpan<KVP>), EnumerateProperties()→ScopeEnumerator ref struct
   Utf8LogWriter.cs               ref struct: Write(ROSpan<byte>), WriteFormatted<T>(in T), WriteFormatted<T>(in T, ROSpan<char> format), WriteString(string?), GetWritten()
   Attributes/
@@ -27,11 +31,13 @@ src/Logsmith/                    Runtime library (net10.0)
     LogCategoryAttribute.cs      [LogCategory("name")] on classes
   Sinks/
     ILogSink.cs                  IsEnabled(LogLevel), Write(in LogEntry, ROSpan<byte>), IDisposable
+    IFlushableLogSink.cs         extends ILogSink: FlushAsync(CancellationToken)
     IStructuredLogSink.cs        extends ILogSink: WriteStructured<TState>(in LogEntry, TState, WriteProperties<TState>)
     ILogStructurable.cs          WriteStructured(Utf8JsonWriter)
     WriteProperties.cs           delegate void WriteProperties<TState>(Utf8JsonWriter, TState) where TState: allows ref struct
     TextLogSink.cs               abstract base: MinimumLevel, abstract WriteMessage(...)
-    BufferedLogSink.cs           abstract async base: Channel<BufferedEntry>(capacity), abstract WriteBufferedAsync(...)
+    BufferedLogSink.cs           abstract async base: Channel<BufferedEntry>(capacity), abstract WriteBufferedAsync(...), DroppedCount (long), errorHandler callback, IFlushableLogSink
+    LogDroppedException.cs       raised via errorHandler when BufferedLogSink drops messages (bounded channel full)
     NullSink.cs                  IsEnabled→false, no-op
     DebugSink.cs                 Debugger.IsAttached guard → Debug.WriteLine, ILogFormatter
     ConsoleSink.cs               extends TextLogSink: ANSI colored, stdout stream, ILogFormatter, ThreadBuffer pooling
@@ -53,27 +59,38 @@ src/Logsmith/                    Runtime library (net10.0)
 
 src/Logsmith.Generator/          Source generator (netstandard2.0, Roslyn 4.3)
   LogsmithGenerator.cs           IIncrementalGenerator: syntax predicate→transform→per-class emission
-  ModeDetector.cs                IsSharedMode(): checks for "Logsmith" assembly reference
+  ModeDetector.cs                ParseMode(string?): parses LogsmithMode MSBuild property → GeneratorMode enum. ResolveAbstractionNamespace().
   EventIdGenerator.cs            FNV-1a hash of "Class.Method" or user-specified
   ConditionalCompilation.cs      [Conditional("DEBUG")] for methods ≤ threshold level
   Models/
-    LogMethodInfo.cs             All method metadata: namespace, class, params, template, mode, level, eventId, sampleRate, maxPerSecond
+    LogMethodInfo.cs             All method metadata: namespace, class, params, template, mode, level, eventId, sampleRate, maxPerSecond, abstractionNamespace
     ContainingTypeInfo.cs        Type chain for nested class support
     ParameterInfo.cs             Name, TypeFullName, Kind, IsNullableValueType, IsNullableReferenceType, defaults, RefKind
-    ParameterKind.cs             enum: MessageParam, Sink, Exception, CallerFile, CallerLine, CallerMember
+    ParameterKind.cs             enum: MessageParam, Sink, Exception, CallerFile, CallerLine, CallerMember, AbstractionLogger
     TemplatePart.cs              IsPlaceholder, Text, FormatSpecifier?, BoundParameter?
   Parsing/
     TemplateParser.cs            Parse(template)→parts (with format specifiers), Bind(parts,params)→diagnostics, GenerateTemplateFree(...)
     ParameterClassifier.cs       Classify(IMethodSymbol): Sink(idx0)→Exception→CallerInfo→MessageParam
   Emission/
-    MethodEmitter.cs             EmitClassFile(), EmitMethodBody(), EmitSamplingGuard(), EmitRateLimitGuard(), EmitStaticCounterFields()
+    MethodEmitter.cs             EmitClassFile(), EmitMethodBody(), EmitAbstractionMethodBody(), EmitSamplingGuard(), EmitRateLimitGuard(), EmitStaticCounterFields()
     TextPathEmitter.cs           writer.Write("..."u8) for literals, WriteFormatted/WriteString for params, :json→SerializeToUtf8Bytes
     StructuredPathEmitter.cs     WriteProperties_<Method>(Utf8JsonWriter, State): JSON property writes, format-aware, :json→Serialize
     NullableEmitter.cs           EmitNullGuard(): HasValue/is not null/direct
-    EmbeddedSourceEmitter.cs     Standalone: embeds all Logsmith/*.cs, replaces public→internal
+    EmbeddedSourceEmitter.cs     Standalone: embeds all Logsmith/*.cs, replaces public→internal. Abstraction: selective public types + namespace rewriting
     SerializationKind.cs         enum: Utf8SpanFormattable, SpanFormattable, Formattable, String, ToString
+  AbstractionSources/             Embedded sources for abstraction mode (excluded from compilation)
+    ILogsmithLogger.cs           public interface: IsEnabled(LogLevel,string), Write(in LogEntry, ROSpan<byte>)
+    IStructuredLogsmithLogger.cs extends ILogsmithLogger: WriteStructured<TState>(in LogEntry, ROSpan<byte>, TState, WriteProperties<TState>)
+    LogsmithOutput.cs            public static Logger property (volatile ILogsmithLogger?)
   Diagnostics/
-    DiagnosticDescriptors.cs     LSMITH001-007
+    DiagnosticDescriptors.cs     LSMITH001-008, LSMITH010
+  build/
+    Logsmith.Generator.props     Sets LogsmithMode=Standalone default
+  Logsmith.Generator.nuspec      NuGet meta-package: depends on Logsmith with include=analyzers,build,buildTransitive
+
+src/Logsmith/
+  build/Logsmith.props           Sets LogsmithMode=Shared default, CompilerVisibleProperty declarations, PrivateAssets validation target (LSMITH010)
+  buildTransitive/Logsmith.props Same as build/ for transitive consumers
 
 src/Logsmith.Extensions.Logging/ MEL bridge (net10.0)
   LoggingBuilderExtensions.cs    static: AddLogsmith(this ILoggingBuilder)
@@ -172,12 +189,36 @@ builder.Logging.AddLogsmith(); // routes ILogger calls through Logsmith sinks
 ### Standalone mode
 
 ```xml
-<ItemGroup>
-  <ProjectReference Include="Logsmith.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-</ItemGroup>
+<PackageReference Include="Logsmith.Generator" Version="0.5.0" />
 ```
 
-All runtime types are embedded as `internal` automatically.
+All runtime types are embedded as `internal` automatically. `Logsmith.Generator` is a meta-package that defaults `LogsmithMode=Standalone`.
+
+### Abstraction mode (library authors)
+
+```xml
+<PropertyGroup>
+    <LogsmithMode>Abstraction</LogsmithMode>
+    <LogsmithNamespace>MyLib.Logging</LogsmithNamespace> <!-- optional, defaults to {RootNamespace}.Logging -->
+</PropertyGroup>
+<PackageReference Include="Logsmith" Version="0.5.0" PrivateAssets="all" />
+```
+
+Consumer wires logger at startup:
+```csharp
+using MyLib.Logging;
+LogsmithOutput.Logger = new MyLogger(); // implements ILogsmithLogger or IStructuredLogsmithLogger
+```
+
+Generated methods dispatch via `LogsmithOutput.Logger` instead of `LogManager`. Runtime type-check for `IStructuredLogsmithLogger` → calls `WriteStructured` when available.
+
+### Flushing and shutdown
+
+```csharp
+await LogManager.FlushAsync();                              // flush all IFlushableLogSink instances
+await LogManager.ShutdownAsync(TimeSpan.FromSeconds(10));   // flush + dispose all sinks
+LogManager.Shutdown();                                      // synchronous
+```
 
 ## Generator Internals
 
@@ -186,10 +227,10 @@ All runtime types are embedded as `internal` automatically.
 1. `[Conditional("DEBUG")]` if level ≤ threshold (MSBuild `<LogsmithConditionalLevel>`, default: Debug)
 2. Sampling guard: `Interlocked.Increment(ref __sampleCounter_Method) % SampleRate != 0 → return` (if SampleRate > 0)
 3. Rate-limit guard: sliding-second window via `__rateWindow_Method`/`__rateCount_Method` with Interlocked (if MaxPerSecond > 0)
-4. Early-exit: `if (!LogManager.IsEnabled(level)) return;` (or `!sink.IsEnabled()` for explicit sink)
+4. Early-exit: `if (!LogManager.IsEnabled(level)) return;` (or `!sink.IsEnabled()` for explicit sink, or `!logger.IsEnabled()` for abstraction mode)
 5. Construct `LogEntry` with UTC ticks, event ID, category, exception, caller info, threadId, threadName
 6. `stackalloc byte[128..4096]` → `Utf8LogWriter` → write template parts as UTF-8
-7. Dispatch: `LogManager.Dispatch(in entry, utf8Message, state, WriteProperties_Method)` or `sink.Write(in entry, utf8Message)`
+7. Dispatch: `LogManager.Dispatch(...)` (shared/standalone), `sink.Write(...)` (explicit sink), or `logger.Write(...)`/`logger.WriteStructured(...)` (abstraction)
 8. State ref struct holds message params for structured sink path
 9. Static counter fields emitted per-class for sampling/rate-limiting methods
 
@@ -208,6 +249,8 @@ Literals: byte count. String params: +128. Other params: +32. `:json` params: +2
 | LSMITH005 | Warning | Caller info param name used as template placeholder |
 | LSMITH006 | Warning | `:json` format specifier on primitive type is unnecessary |
 | LSMITH007 | Warning | SampleRate and MaxPerSecond both set on same method |
+| LSMITH008 | Warning | ILogSink explicit sink parameter in abstraction mode (use ILogsmithLogger) |
+| LSMITH010 | Warning | Standalone/Abstraction mode without PrivateAssets="all" on Logsmith PackageReference |
 
 ## Key Design Decisions
 
@@ -232,6 +275,12 @@ Literals: byte count. String params: +128. Other params: +32. `:json` params: +2
 - Dynamic levels: `WatchEnvironmentVariable()` polls env var; `WatchConfigFile()` watches JSON file with debounce; both call `LogManager.SetMinimumLevel()`/`SetCategoryOverrides()`
 - ThreadBuffer: thread-static `ArrayBufferWriter<byte>` pooling for formatter hot paths, reduces GC pressure
 - MEL bridge: `LogsmithLoggerProvider` implements `ILoggerProvider`, `LogsmithLogger` maps MEL→Logsmith levels, constructs LogEntry, UTF-8 encodes via stackalloc, dispatches through LogManager
+- LogsmithMode: single MSBuild property (`Shared`/`Standalone`/`Abstraction`) replaces auto-detection from assembly references. Parsed via `ModeDetector.ParseMode()`.
+- Abstraction mode: public interfaces in configurable namespace (`LogsmithNamespace` or `{RootNamespace}.Logging`), internal infrastructure. Runtime type-check for `IStructuredLogsmithLogger`.
+- Package restructuring: `Logsmith` ships runtime + generator DLL in `analyzers/`. `Logsmith.Generator` is a meta-package (no DLLs) with .nuspec dependency on Logsmith.
+- PrivateAssets validation: MSBuild target in Logsmith.props emits LSMITH010 warning when mode ≠ Shared and PrivateAssets≠all.
+- Flush/Shutdown: `IFlushableLogSink.FlushAsync()` for buffered sinks. `LogManager.ShutdownAsync()` flushes then disposes all sinks.
+- BufferedLogSink drops: `DroppedCount` (long) tracks dropped messages. `errorHandler` callback notified via `LogDroppedException`.
 
 ## Testing
 
