@@ -15,6 +15,7 @@ Logsmith is a logging framework where the source generator *is* the framework. E
 - [Comparison with Other Frameworks](#comparison-with-other-frameworks)
 - [Benchmarks](#benchmarks)
 - [Features](#features)
+- [Operating Modes](#operating-modes)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Declaring Log Methods](#declaring-log-methods)
@@ -35,7 +36,9 @@ Logsmith is a logging framework where the source generator *is* the framework. E
 - [Caller Information](#caller-information)
 - [Exception Handling](#exception-handling)
 - [Explicit Sink Parameter](#explicit-sink-parameter)
+- [Abstraction Mode (Library Authors)](#abstraction-mode-library-authors)
 - [Multi-Project Solutions](#multi-project-solutions)
+- [Flushing and Shutdown](#flushing-and-shutdown)
 - [Compile-Time Diagnostics](#compile-time-diagnostics)
 - [Extending Logsmith](#extending-logsmith)
 - [Testing](#testing)
@@ -47,8 +50,8 @@ Logsmith is a logging framework where the source generator *is* the framework. E
 
 | Name | NuGet | Description |
 |------|-------|-------------|
-| [`Logsmith`](https://www.nuget.org/packages/Logsmith) | [![Logsmith](https://img.shields.io/nuget/v/Logsmith.svg?maxAge=60)](https://www.nuget.org/packages/Logsmith) | Runtime library with public types, sinks, and the bundled source generator. Use this when multiple projects share log definitions. |
-| [`Logsmith.Generator`](https://www.nuget.org/packages/Logsmith.Generator) | [![Logsmith.Generator](https://img.shields.io/nuget/v/Logsmith.Generator.svg?maxAge=60)](https://www.nuget.org/packages/Logsmith.Generator) | Source generator only. Emits all infrastructure as internal types with zero runtime dependency. |
+| [`Logsmith`](https://www.nuget.org/packages/Logsmith) | [![Logsmith](https://img.shields.io/nuget/v/Logsmith.svg?maxAge=60)](https://www.nuget.org/packages/Logsmith) | Runtime library with public types, sinks, and the bundled source generator. Default mode: **Shared**. |
+| [`Logsmith.Generator`](https://www.nuget.org/packages/Logsmith.Generator) | [![Logsmith.Generator](https://img.shields.io/nuget/v/Logsmith.Generator.svg?maxAge=60)](https://www.nuget.org/packages/Logsmith.Generator) | Thin meta-package. Depends on `Logsmith` for the generator and build assets only — no runtime DLL. Default mode: **Standalone**. |
 | [`Logsmith.Extensions.Logging`](https://www.nuget.org/packages/Logsmith.Extensions.Logging) | [![Logsmith.Extensions.Logging](https://img.shields.io/nuget/v/Logsmith.Extensions.Logging.svg?maxAge=60)](https://www.nuget.org/packages/Logsmith.Extensions.Logging) | Microsoft.Extensions.Logging bridge. Routes `ILogger` calls through Logsmith sinks. |
 
 ---
@@ -70,7 +73,7 @@ The generator reads your method declarations at build time. It knows the concret
 - A C# incremental source generator that emits fully specialized logging method bodies at compile time.
 - A zero-allocation logging pipeline that stays in UTF8 from input to output.
 - A structured logging system that captures typed properties alongside human-readable messages.
-- A dual-mode package: reference the runtime library for shared types across projects, or use the generator alone for fully self-contained internal logging with no runtime dependency.
+- A three-mode package: **Shared** for applications with public types, **Standalone** for zero-dependency internal logging, or **Abstraction** for libraries that expose logging contracts to consumers.
 - A compile-time safety net with diagnostics that catch template mismatches, missing parameters, and unsupported types before your code ever runs.
 - A framework that supports `in` parameters for passing large structs by reference, eliminating unnecessary copies on the logging hot path.
 - A framework that uses `[Conditional("DEBUG")]` to strip debug and trace log calls from release binaries at the compiler level, not just filter them at runtime.
@@ -88,6 +91,7 @@ The generator reads your method declarations at build time. It knows the concret
 |---|---|---|---|---|---|
 | Source-generated method bodies | Yes | Yes | Yes | No | No |
 | Zero runtime dependency mode | Yes (standalone) | No (requires MEL) | No (requires MEL) | No | No |
+| Abstraction mode for libraries | Yes | No | No | No | No |
 | Zero allocation hot path | Yes | Partial (MEL infra allocates) | Yes | No | No |
 | UTF8 end-to-end | Yes | No (UTF16 strings) | Yes | No | No |
 | Structured logging | Yes (Utf8JsonWriter) | Yes | Yes | Yes | Yes |
@@ -95,7 +99,7 @@ The generator reads your method declarations at build time. It knows the concret
 | No boxing of value types | Yes | Yes (generated path) | Yes | No (object[] params) | No (object[] params) |
 | No reflection | Yes | Yes | Partial | No (used in enrichers) | No (used in layouts) |
 | NativeAOT compatible | Yes | Yes | Yes | Partial | Partial |
-| Compile-time diagnostics | Yes (LSMITH001-007) | Yes | Limited | No | No |
+| Compile-time diagnostics | Yes (LSMITH001-010) | Yes | Limited | No | No |
 | Log sampling / rate limiting | Yes (compile-time) | No | No | No | No |
 | Scoped context (AsyncLocal) | Yes (LogScope) | Yes (ILogger.BeginScope) | Yes | Yes (LogContext) | Yes (ScopeContext) |
 | Dynamic level switching | Yes (env var, file) | Yes (IOptionsMonitor) | Yes | Yes (LoggingLevelSwitch) | Yes (config reload) |
@@ -122,9 +126,9 @@ The generator emits direct calls to `IUtf8SpanFormattable.TryFormat` for every v
 
 Log methods at or below a configurable severity threshold receive `[Conditional("DEBUG")]`, causing the C# compiler to erase call sites entirely from release builds. The method body, the argument evaluation, and the call itself are absent from the compiled IL.
 
-### Dual-Mode Packaging
+### Three-Mode Packaging
 
-Reference the `Logsmith` NuGet package for shared public types and the bundled generator. Or reference `Logsmith.Generator` alone, and the generator emits all infrastructure as internal types. The generator detects which mode applies automatically.
+The `<LogsmithMode>` MSBuild property selects the operating mode: **Shared** (default for `Logsmith` package), **Standalone** (default for `Logsmith.Generator` package), or **Abstraction** (explicit opt-in for library authors). See [Operating Modes](#operating-modes).
 
 ### Structured and Text Output
 
@@ -176,6 +180,22 @@ Every `LogEntry` carries `ThreadId` and `ThreadName` captured at the call site. 
 
 ---
 
+## Operating Modes
+
+Logsmith supports three modes, controlled by the `<LogsmithMode>` MSBuild property:
+
+| Mode | Default for | Runtime DLL | Generated types | Use case |
+|------|------------|-------------|-----------------|----------|
+| **Shared** | `Logsmith` package | Yes, flows transitively | Method bodies only | Applications and multi-project solutions |
+| **Standalone** | `Logsmith.Generator` package | No (`PrivateAssets="all"` required) | All types as `internal` | Libraries with zero transitive dependencies |
+| **Abstraction** | Explicit opt-in | No (`PrivateAssets="all"` required) | Public interfaces + internal infrastructure | Libraries that expose logging contracts to consumers |
+
+When both packages are referenced transitively, **Shared** wins (NuGet evaluates `Logsmith.props` before `Logsmith.Generator.props`). Explicit `<LogsmithMode>` in your `.csproj` always takes precedence.
+
+In Standalone or Abstraction mode, the Logsmith runtime DLL must not leak to consumers. The build emits **LSMITH010** if `PrivateAssets="all"` is missing on the Logsmith package reference.
+
+---
+
 ## Installation
 
 ### Standard (recommended for most projects)
@@ -189,12 +209,21 @@ This provides the runtime library (public types, sinks, `LogManager`) and the so
 ### Standalone (zero runtime dependency)
 
 ```xml
-<PackageReference Include="Logsmith.Generator" Version="1.0.0"
-    OutputItemType="Analyzer"
-    ReferenceOutputAssembly="false" />
+<PackageReference Include="Logsmith.Generator" Version="1.0.0" />
 ```
 
-The generator emits all infrastructure types as `internal` into your assembly. No Logsmith DLLs appear in your build output.
+`Logsmith.Generator` is a thin meta-package that depends on `Logsmith` for the generator and build assets only (no compile/runtime assets). It defaults to `LogsmithMode=Standalone`, and the generator emits all infrastructure types as `internal` into your assembly. No Logsmith DLLs appear in your build output.
+
+### Abstraction (library authors)
+
+```xml
+<PropertyGroup>
+    <LogsmithMode>Abstraction</LogsmithMode>
+</PropertyGroup>
+<PackageReference Include="Logsmith" Version="1.0.0" PrivateAssets="all" />
+```
+
+See [Abstraction Mode](#abstraction-mode-library-authors) for details.
 
 ---
 
@@ -960,6 +989,85 @@ This is useful for testing with a `RecordingSink` or for routing specific log pa
 
 ---
 
+## Abstraction Mode (Library Authors)
+
+Abstraction mode lets library authors expose a logging interface without imposing `Logsmith.dll` on consumers. The generator emits public interfaces in a configurable namespace while keeping all infrastructure types internal.
+
+### Setup
+
+```xml
+<PropertyGroup>
+    <LogsmithMode>Abstraction</LogsmithMode>
+    <!-- Optional: defaults to {RootNamespace}.Logging -->
+    <LogsmithNamespace>MyLib.Logging</LogsmithNamespace>
+</PropertyGroup>
+
+<PackageReference Include="Logsmith" Version="1.0.0" PrivateAssets="all" />
+```
+
+### Generated public types
+
+The following types are emitted as **public** in the configured namespace:
+
+- `ILogsmithLogger` — base logging interface (text-only)
+- `IStructuredLogsmithLogger` — extends `ILogsmithLogger` with typed property access via `WriteProperties<TState>`
+- `LogsmithOutput` — static `Logger` property for wiring at startup
+- `LogLevel`, `LogEntry`, `LogScope`, `WriteProperties<TState>`
+
+All other infrastructure (LogManager, sinks, formatters) is emitted as `internal`.
+
+### Library declares log methods normally
+
+```csharp
+[LogCategory("MyLib")]
+static partial class LibLog
+{
+    [LogMessage(LogLevel.Information, "Connected to {endpoint}")]
+    public static partial void Connected(string endpoint);
+}
+```
+
+### Consumer wires a logger at startup
+
+```csharp
+using MyLib.Logging;
+
+// Text-only logger
+LogsmithOutput.Logger = new ConsoleLogsmithLogger();
+```
+
+```csharp
+sealed class ConsoleLogsmithLogger : ILogsmithLogger
+{
+    public bool IsEnabled(LogLevel level, string category) => true;
+
+    public void Write(in LogEntry entry, ReadOnlySpan<byte> utf8Message)
+    {
+        Console.WriteLine(Encoding.UTF8.GetString(utf8Message));
+    }
+}
+```
+
+### Structured logger (optional)
+
+Consumers can implement `IStructuredLogsmithLogger` to receive typed properties. Generated methods automatically detect this at runtime and dispatch to `WriteStructured` when available:
+
+```csharp
+sealed class StructuredLogger : IStructuredLogsmithLogger
+{
+    public bool IsEnabled(LogLevel level, string category) => true;
+    public void Write(in LogEntry entry, ReadOnlySpan<byte> utf8Message) { /* text fallback */ }
+
+    public void WriteStructured<TState>(in LogEntry entry, ReadOnlySpan<byte> utf8Message,
+        TState state, WriteProperties<TState> propertyWriter) where TState : allows ref struct
+    {
+        // Use propertyWriter to write typed properties to Utf8JsonWriter
+    }
+}
+```
+
+---
+
 ## Multi-Project Solutions
 
 ### Single project or standalone application
@@ -977,7 +1085,28 @@ MyApp.sln
   MyApp.Host/          --> references Logsmith (initializes LogManager, references Core + Networking)
 ```
 
-The generator detects whether the `Logsmith` assembly is present in the compilation's references. If present, it emits only the partial method bodies and uses the public types from the assembly. If absent, it emits the full infrastructure as internal types.
+The `<LogsmithMode>` property controls what the generator emits. In Shared mode (default for `Logsmith` package), it emits only the partial method bodies and uses the public types from the runtime assembly. In Standalone mode, it emits the full infrastructure as internal types.
+
+---
+
+## Flushing and Shutdown
+
+Sinks that implement `IFlushableLogSink` (including `FileSink`, `StreamSink`, and `BufferedLogSink` subclasses) support explicit flushing:
+
+```csharp
+// Flush all buffered sinks
+await LogManager.FlushAsync();
+await LogManager.FlushAsync(timeout: TimeSpan.FromSeconds(5));
+
+// Graceful shutdown: flush all sinks, then dispose
+await LogManager.ShutdownAsync();
+await LogManager.ShutdownAsync(timeout: TimeSpan.FromSeconds(10));
+
+// Synchronous shutdown (blocks)
+LogManager.Shutdown();
+```
+
+`BufferedLogSink` tracks dropped messages when its bounded channel is full. The `DroppedCount` property reports the total, and drops are reported via the `errorHandler` callback (as `LogDroppedException`).
 
 ---
 
@@ -994,6 +1123,8 @@ The generator produces the following diagnostics:
 | LSMITH005 | Warning | Parameter has a `[Caller*]` attribute and also appears in the message template. Caller attribute takes priority. |
 | LSMITH006 | Warning | `:json` format specifier on primitive type is unnecessary — prefer default formatting. |
 | LSMITH007 | Warning | Both `SampleRate` and `MaxPerSecond` are set on the same method. `SampleRate` is applied first. |
+| LSMITH008 | Warning | `ILogSink` explicit sink parameter in abstraction mode — use `ILogsmithLogger` instead. |
+| LSMITH010 | Warning | `LogsmithMode` is Standalone or Abstraction but `PrivateAssets="all"` is missing on the Logsmith package reference. |
 
 ---
 
@@ -1162,6 +1293,14 @@ LogManager.Reconfigure(config =>
 
 The configuration object is immutable. Reconfiguration builds a new config and swaps it atomically via a volatile write. The hot path reads the config through a single volatile read with no locking. Active monitors from the previous config are disposed.
 
+### Flushing and shutdown
+
+```csharp
+await LogManager.FlushAsync();                              // flush all IFlushableLogSink instances
+await LogManager.ShutdownAsync(TimeSpan.FromSeconds(10));   // flush + dispose all sinks
+LogManager.Shutdown();                                      // synchronous shutdown
+```
+
 ### Global exception handler
 
 ```csharp
@@ -1178,8 +1317,15 @@ LogManager.Initialize(cfg =>
 
 ```xml
 <PropertyGroup>
+    <!-- Operating mode: Shared, Standalone, or Abstraction -->
+    <!-- Default: Shared (Logsmith package) or Standalone (Logsmith.Generator package) -->
+    <LogsmithMode>Shared</LogsmithMode>
+
     <!-- Conditional compilation threshold (default: Debug) -->
     <LogsmithConditionalLevel>Debug</LogsmithConditionalLevel>
+
+    <!-- Namespace for abstraction mode public types (default: {RootNamespace}.Logging) -->
+    <LogsmithNamespace>MyLib.Logging</LogsmithNamespace>
 </PropertyGroup>
 ```
 
@@ -1191,7 +1337,7 @@ LogManager.Initialize(cfg =>
 
 The `Logsmith` NuGet package contains the runtime library in `lib/net10.0/` and the source generator in `analyzers/dotnet/cs/`. Referencing `Logsmith` provides both.
 
-The `Logsmith.Generator` NuGet package contains only the source generator in `analyzers/dotnet/cs/`. It embeds the Logsmith runtime source files as resources. When the generator detects that the `Logsmith` assembly is not referenced, it emits these embedded sources as internal types. This ensures the standalone internal types are always identical to the public types in the runtime library.
+The `Logsmith.Generator` NuGet package is a thin meta-package that depends on `Logsmith` with asset filtering (analyzers and build assets only — no compile/runtime). It defaults `LogsmithMode` to `Standalone`, causing the generator to emit all infrastructure as internal types. The embedded Logsmith runtime source files ensure the standalone internal types are always identical to the public types in the runtime library.
 
 ### Generated code
 
@@ -1212,6 +1358,7 @@ The generator classifies each method parameter by inspecting its type and attrib
 | Classification | Detection | Handling |
 |---|---|---|
 | Sink | Type is `ILogSink` | Used as dispatch target instead of LogManager |
+| AbstractionLogger | Type is `ILogsmithLogger` (abstraction mode) | Used as dispatch target instead of LogsmithOutput |
 | Exception | Type is or derives from `Exception` | Attached to `LogEntry.Exception`, excluded from message |
 | CallerFile | Has `[CallerFilePath]` | Attached to `LogEntry.CallerFile` |
 | CallerLine | Has `[CallerLineNumber]` | Attached to `LogEntry.CallerLine` |

@@ -1,0 +1,20 @@
+<Project>
+  <PropertyGroup>
+    <LogsmithMode Condition="'$(LogsmithMode)' == ''">Shared</LogsmithMode>
+  </PropertyGroup>
+  <ItemGroup>
+    <CompilerVisibleProperty Include="LogsmithMode" />
+    <CompilerVisibleProperty Include="LogsmithConditionalLevel" />
+    <CompilerVisibleProperty Include="LogsmithNamespace" />
+    <CompilerVisibleProperty Include="RootNamespace" />
+  </ItemGroup>
+
+  <!-- Validate PrivateAssets when not in Shared mode -->
+  <Target Name="_LogsmithValidatePrivateAssets"
+          AfterTargets="CollectPackageReferences"
+          Condition="'$(LogsmithMode)' != 'Shared'">
+    <Warning Code="LSMITH010"
+             Text="LogsmithMode is '$(LogsmithMode)' but the Logsmith package reference does not have PrivateAssets='all'. This will leak the Logsmith runtime DLL to consumers. Add PrivateAssets='all' to the Logsmith PackageReference."
+             Condition="@(PackageReference->AnyHaveMetadataValue('Identity', 'Logsmith')) and !@(PackageReference->WithMetadataValue('Identity', 'Logsmith')->AnyHaveMetadataValue('PrivateAssets', 'all'))" />
+  </Target>
+</Project>

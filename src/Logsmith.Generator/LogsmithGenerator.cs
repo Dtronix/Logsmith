@@ -39,12 +39,12 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
                 provider.GlobalOptions.TryGetValue(
                     "build_property.LogsmithConditionalLevel", out var conditionalLevel);
                 provider.GlobalOptions.TryGetValue(
-                    "build_property.LogsmithAbstraction", out var abstraction);
+                    "build_property.LogsmithMode", out var logsmithMode);
                 provider.GlobalOptions.TryGetValue(
                     "build_property.LogsmithNamespace", out var logsmithNamespace);
                 provider.GlobalOptions.TryGetValue(
                     "build_property.RootNamespace", out var rootNamespace);
-                return (conditionalLevel, abstraction, logsmithNamespace, rootNamespace);
+                return (conditionalLevel, logsmithMode, logsmithNamespace, rootNamespace);
             });
 
         // Combine method info with config
@@ -72,6 +72,18 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
                 // Apply config-level overrides that weren't available during syntax transform
                 var resolvedMethod = ApplyConfig(method, config);
 
+                // LSMITH008: ILogSink explicit sink in abstraction mode
+                // Checked here after mode is resolved via config (not available during syntax transform)
+                if (resolvedMethod.Mode == GeneratorMode.Abstraction
+                    && resolvedMethod.Parameters.Count > 0
+                    && resolvedMethod.Parameters[0].Kind == ParameterKind.Sink)
+                {
+                    ctx.ReportDiagnostic(Diagnostic.Create(
+                        DiagnosticDescriptors.LSMITH008,
+                        resolvedMethod.MethodLocation,
+                        resolvedMethod.MethodName));
+                }
+
                 // Group by containing class (qualified for nested types)
                 string key = $"{resolvedMethod.ContainingNamespace}.{resolvedMethod.QualifiedClassName}";
                 if (!grouped.TryGetValue(key, out var list))
@@ -97,30 +109,19 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
         });
 
         // Mode-dependent embedded source emission
-        var modeProvider = context.CompilationProvider
-            .Combine(context.AnalyzerConfigOptionsProvider)
-            .Select(static (pair, _) =>
+        var modeProvider = context.AnalyzerConfigOptionsProvider
+            .Select(static (provider, _) =>
             {
-                var compilation = pair.Left;
-                var options = pair.Right.GlobalOptions;
-                var mode = ModeDetector.DetectMode(compilation, options);
+                var options = provider.GlobalOptions;
+                options.TryGetValue("build_property.LogsmithMode", out var modeValue);
+                var mode = ModeDetector.ParseMode(modeValue);
                 var absNs = ModeDetector.ResolveAbstractionNamespace(options);
-                bool isSharedRef = ModeDetector.IsSharedMode(compilation);
-                return (mode, absNs, isSharedRef);
+                return (mode, absNs);
             });
 
         context.RegisterSourceOutput(modeProvider, static (ctx, modeInfo) =>
         {
-            var (mode, absNs, isSharedRef) = modeInfo;
-
-            // LSMITH009: abstraction mode conflicts with shared mode
-            if (mode == GeneratorMode.Abstraction && isSharedRef)
-            {
-                ctx.ReportDiagnostic(Diagnostic.Create(
-                    DiagnosticDescriptors.LSMITH009,
-                    Location.None));
-                return;
-            }
+            var (mode, absNs) = modeInfo;
 
             if (mode == GeneratorMode.Standalone)
             {
@@ -234,21 +235,13 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
                 methodSymbol.Name));
         }
 
-        // Detect mode — needed for parameter classification
-        // We read the MSBuild property from the syntax tree context to check abstraction mode
-        var mode = DetectModeFromCompilation(compilation);
+        // Mode is not available during syntax transform (no AnalyzerConfigOptions here).
+        // Use Shared as placeholder — actual mode is resolved in ApplyConfig when
+        // methods are combined with the config provider.
+        var mode = GeneratorMode.Shared;
 
         // Classify parameters (uses semantic model for BCL types like Exception, CallerInfo)
         var parameters = ParameterClassifier.Classify(methodSymbol, compilation, mode);
-
-        // LSMITH008: ILogSink explicit sink in abstraction mode
-        if (mode == GeneratorMode.Abstraction && parameters.Count > 0 && parameters[0].Kind == ParameterKind.Sink)
-        {
-            diagnostics.Add(Diagnostic.Create(
-                DiagnosticDescriptors.LSMITH008,
-                methodSyntax.GetLocation(),
-                methodSymbol.Name));
-        }
 
         // Parse/bind template
         IReadOnlyList<TemplatePart> templateParts;
@@ -338,22 +331,6 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
             abstractionNamespace: "");
 
         return (methodInfo, diagnostics);
-    }
-
-    /// <summary>
-    /// Detects the generator mode from the compilation alone.
-    /// Note: this doesn't have access to AnalyzerConfigOptions in the syntax transform,
-    /// so it checks for the abstraction marker in the compilation references.
-    /// The full mode detection with MSBuild properties happens in the mode provider.
-    /// For the syntax transform, we approximate: if Logsmith assembly is present → Shared, else Standalone.
-    /// The abstraction namespace is injected later when methods are combined with config.
-    /// </summary>
-    private static GeneratorMode DetectModeFromCompilation(Compilation compilation)
-    {
-        // We cannot read MSBuild properties here (no AnalyzerConfigOptions available).
-        // The mode is approximate — abstraction mode details are applied when
-        // methods are combined with config in the output stage.
-        return ModeDetector.IsSharedMode(compilation) ? GeneratorMode.Shared : GeneratorMode.Standalone;
     }
 
     private static readonly string[] AllowedModifiers =
@@ -553,21 +530,20 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
 
     /// <summary>
     /// Applies MSBuild config properties to a method info created during syntax transform.
-    /// This resolves conditional level and abstraction mode/namespace that weren't
+    /// This resolves conditional level and mode/namespace that weren't
     /// available during the syntax transform phase.
     /// </summary>
     private static LogMethodInfo ApplyConfig(
         LogMethodInfo method,
-        (string? conditionalLevel, string? abstraction, string? logsmithNamespace, string? rootNamespace) config)
+        (string? conditionalLevel, string? logsmithMode, string? logsmithNamespace, string? rootNamespace) config)
     {
         string conditionalLevel = config.conditionalLevel ?? "";
 
-        // Determine if abstraction mode is enabled
-        bool isAbstraction = string.Equals(config.abstraction, "true", System.StringComparison.OrdinalIgnoreCase);
-        var mode = isAbstraction ? GeneratorMode.Abstraction : method.Mode;
+        // Determine mode from LogsmithMode MSBuild property
+        var mode = ModeDetector.ParseMode(config.logsmithMode);
 
         string abstractionNamespace = "";
-        if (isAbstraction)
+        if (mode == GeneratorMode.Abstraction)
         {
             if (!string.IsNullOrEmpty(config.logsmithNamespace))
                 abstractionNamespace = config.logsmithNamespace!;

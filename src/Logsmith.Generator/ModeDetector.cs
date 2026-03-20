@@ -1,4 +1,3 @@
-using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace Logsmith.Generator;
@@ -13,38 +12,24 @@ internal enum GeneratorMode
 internal static class ModeDetector
 {
     /// <summary>
-    /// Returns true if Logsmith runtime types are present in the compilation
-    /// from the Logsmith assembly (shared mode). False = standalone mode.
+    /// Parses the LogsmithMode MSBuild property string to a GeneratorMode enum.
+    /// Null/empty defaults to Shared. Unrecognized values default to Shared.
     /// </summary>
-    internal static bool IsSharedMode(Compilation compilation)
+    internal static GeneratorMode ParseMode(string? msbuildValue)
     {
-        // Building the Logsmith project itself — types are defined in source
-        if (compilation.AssemblyName == "Logsmith")
-            return true;
+        if (string.IsNullOrEmpty(msbuildValue))
+            return GeneratorMode.Shared;
 
-        // Check if Logsmith assembly is referenced (shared mode via ProjectReference or NuGet)
-        foreach (var identity in compilation.ReferencedAssemblyNames)
-        {
-            if (identity.Name == "Logsmith")
-                return true;
-        }
+        if (string.Equals(msbuildValue, "Shared", System.StringComparison.OrdinalIgnoreCase))
+            return GeneratorMode.Shared;
 
-        return false;
-    }
+        if (string.Equals(msbuildValue, "Standalone", System.StringComparison.OrdinalIgnoreCase))
+            return GeneratorMode.Standalone;
 
-    /// <summary>
-    /// Detects the generator mode from MSBuild properties and compilation references.
-    /// Priority: Abstraction (explicit) > Shared (Logsmith referenced) > Standalone (default).
-    /// </summary>
-    internal static GeneratorMode DetectMode(Compilation compilation, AnalyzerConfigOptions globalOptions)
-    {
-        if (globalOptions.TryGetValue("build_property.LogsmithAbstraction", out var abstractionValue)
-            && string.Equals(abstractionValue, "true", System.StringComparison.OrdinalIgnoreCase))
-        {
+        if (string.Equals(msbuildValue, "Abstraction", System.StringComparison.OrdinalIgnoreCase))
             return GeneratorMode.Abstraction;
-        }
 
-        return IsSharedMode(compilation) ? GeneratorMode.Shared : GeneratorMode.Standalone;
+        return GeneratorMode.Shared;
     }
 
     /// <summary>
