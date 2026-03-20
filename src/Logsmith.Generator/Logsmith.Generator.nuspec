@@ -13,7 +13,7 @@
     <icon>logo-small.png</icon>
     <developmentDependency>true</developmentDependency>
     <dependencies>
-      <group targetFramework=".NETStandard2.0">
+      <group>
         <dependency id="Logsmith" version="[$version$]"
                     include="analyzers,build,buildTransitive"
                     exclude="compile,runtime,native,contentFiles" />
