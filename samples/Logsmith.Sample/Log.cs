@@ -1,4 +1,4 @@
-using System.Buffers;
+using System.Text.Json;
 using Logsmith;
 
 namespace Logsmith.Sample;
@@ -19,6 +19,30 @@ public struct SensorReading : IUtf8SpanFormattable
 
     public string ToString(string? format, IFormatProvider? provider)
         => $"T={Temperature:F1} H={Humidity:F1} P={Pressure:F1}";
+}
+
+// A type that implements ILogStructurable for custom structured serialization
+public class OrderInfo : ILogStructurable
+{
+    public string OrderId { get; init; } = "";
+    public string Customer { get; init; } = "";
+    public decimal Total { get; init; }
+    public string[] Items { get; init; } = [];
+
+    public void WriteStructured(Utf8JsonWriter writer)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("orderId", OrderId);
+        writer.WriteString("customer", Customer);
+        writer.WriteNumber("total", Total);
+        writer.WriteStartArray("items");
+        foreach (var item in Items)
+            writer.WriteStringValue(item);
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+    }
+
+    public override string ToString() => $"Order {OrderId} ({Customer}, ${Total})";
 }
 
 [LogCategory("Sample")]
@@ -58,4 +82,18 @@ public static partial class Log
     // 'in' parameter — passes large struct by reference to avoid copying
     [LogMessage(LogLevel.Information, "Sensor reported {reading}")]
     public static partial void SensorData(in SensorReading reading);
+
+    // ── Structured logging ───────────────────────────────────────────────
+
+    // ILogStructurable parameter — structured sinks receive typed properties via WriteStructured()
+    [LogMessage(LogLevel.Information, "Order placed: {order}")]
+    public static partial void OrderPlaced(OrderInfo order);
+
+    // :json format specifier — parameter serialized as JSON in both text and structured paths
+    [LogMessage(LogLevel.Information, "Configuration loaded: {config:json}")]
+    public static partial void ConfigLoaded(Dictionary<string, string> config);
+
+    // Mixed: regular params + structured param in the same method
+    [LogMessage(LogLevel.Warning, "Order {orderId} flagged for review: {order}")]
+    public static partial void OrderFlagged(string orderId, OrderInfo order);
 }
