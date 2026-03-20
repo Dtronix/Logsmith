@@ -19,12 +19,19 @@ internal sealed class LogMethodInfo
     public IReadOnlyList<ParameterInfo> Parameters { get; }
     public IReadOnlyList<TemplatePart> TemplateParts { get; }
     public bool HasExplicitSink { get; }
-    public bool IsStandaloneMode { get; }
+    public GeneratorMode Mode { get; }
+    public bool IsStandaloneMode => Mode == GeneratorMode.Standalone;
     public string ConditionalLevel { get; }
     public Location MethodLocation { get; }
     public string AccessModifier { get; }
     public int SampleRate { get; }
     public int MaxPerSecond { get; }
+
+    /// <summary>
+    /// The namespace for abstraction mode public types (e.g., "Acme.Networking.Logging").
+    /// Only meaningful when Mode == Abstraction.
+    /// </summary>
+    public string AbstractionNamespace { get; }
 
     public LogMethodInfo(
         string containingNamespace,
@@ -38,12 +45,13 @@ internal sealed class LogMethodInfo
         IReadOnlyList<ParameterInfo> parameters,
         IReadOnlyList<TemplatePart> templateParts,
         bool hasExplicitSink,
-        bool isStandaloneMode,
+        GeneratorMode mode,
         string conditionalLevel,
         Location methodLocation,
         string accessModifier = "",
         int sampleRate = 0,
-        int maxPerSecond = 0)
+        int maxPerSecond = 0,
+        string abstractionNamespace = "")
     {
         ContainingNamespace = containingNamespace;
         ContainingTypeChain = containingTypeChain;
@@ -56,11 +64,12 @@ internal sealed class LogMethodInfo
         Parameters = parameters;
         TemplateParts = templateParts;
         HasExplicitSink = hasExplicitSink;
-        IsStandaloneMode = isStandaloneMode;
+        Mode = mode;
         ConditionalLevel = conditionalLevel;
         MethodLocation = methodLocation;
         AccessModifier = accessModifier;
         SampleRate = sampleRate;
         MaxPerSecond = maxPerSecond;
+        AbstractionNamespace = abstractionNamespace;
     }
 }

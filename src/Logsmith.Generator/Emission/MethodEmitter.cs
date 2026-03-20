@@ -52,10 +52,15 @@ internal static class MethodEmitter
             }
         }
 
-        // Emit state structs for methods with structured dispatch
+        // Emit state structs for methods with structured dispatch.
+        // Structured dispatch is needed when:
+        //   - The method uses LogManager (no explicit sink), OR
+        //   - The method is in abstraction mode with an explicit ILogsmithLogger param
+        //     (abstraction always checks for IStructuredLogsmithLogger at runtime)
+        // It is NOT needed for explicit ILogSink params (text-only dispatch).
         foreach (var method in methods)
         {
-            if (!method.HasExplicitSink)
+            if (NeedsStructuredDispatch(method))
             {
                 var stateStruct = EmitStateStruct(method);
                 if (!string.IsNullOrEmpty(stateStruct))
@@ -69,7 +74,7 @@ internal static class MethodEmitter
         // Emit WriteProperties methods for structured dispatch
         foreach (var method in methods)
         {
-            if (!method.HasExplicitSink)
+            if (NeedsStructuredDispatch(method))
             {
                 var writeProps = StructuredPathEmitter.EmitWritePropertiesMethod(method);
                 if (!string.IsNullOrEmpty(writeProps))
@@ -126,6 +131,14 @@ internal static class MethodEmitter
 
     internal static string EmitMethodBody(LogMethodInfo method)
     {
+        if (method.Mode == GeneratorMode.Abstraction)
+            return EmitAbstractionMethodBody(method);
+
+        return EmitStandardMethodBody(method);
+    }
+
+    private static string EmitStandardMethodBody(LogMethodInfo method)
+    {
         var sb = new StringBuilder();
         string levelName = method.Level >= 0 && method.Level < LogLevelNames.Length
             ? LogLevelNames[method.Level]
@@ -177,7 +190,7 @@ internal static class MethodEmitter
         sb.AppendLine();
 
         // LogEntry construction
-        sb.Append(EmitLogEntryConstruction(method));
+        sb.Append(EmitLogEntryConstruction(method, "Logsmith"));
         sb.AppendLine();
 
         // Text path
@@ -212,7 +225,94 @@ internal static class MethodEmitter
         return sb.ToString();
     }
 
-    internal static string EmitLogEntryConstruction(LogMethodInfo method)
+    private static string EmitAbstractionMethodBody(LogMethodInfo method)
+    {
+        var sb = new StringBuilder();
+        string levelName = method.Level >= 0 && method.Level < LogLevelNames.Length
+            ? LogLevelNames[method.Level]
+            : "Information";
+        string absNs = method.AbstractionNamespace;
+
+        // Conditional attribute
+        int threshold = ConditionalCompilation.ParseThreshold(method.ConditionalLevel);
+        bool applyConditional = ConditionalCompilation.ShouldApplyConditional(
+            method.Level, threshold, method.AlwaysEmit);
+
+        if (applyConditional)
+        {
+            sb.AppendLine("    [global::System.Diagnostics.Conditional(\"DEBUG\")]");
+        }
+
+        // Method signature
+        sb.Append($"    {method.AccessModifier}static partial void {method.MethodName}(");
+        sb.Append(string.Join(", ", method.Parameters.Select(p => FormatParameterAbstraction(p, absNs))));
+        sb.AppendLine(")");
+        sb.AppendLine("    {");
+
+        bool hasExplicitLogger = HasAbstractionLogger(method);
+
+        // Logger acquisition + IsEnabled guard
+        if (hasExplicitLogger)
+        {
+            var loggerParam = method.Parameters.First(p => p.Kind == ParameterKind.AbstractionLogger);
+            sb.AppendLine($"        if (!{loggerParam.Name}.IsEnabled(global::{absNs}.LogLevel.{levelName}, \"{EscapeString(method.Category)}\"))");
+            sb.AppendLine("            return;");
+            sb.AppendLine($"        var __logger = {loggerParam.Name};");
+        }
+        else
+        {
+            sb.AppendLine($"        var __logger = global::{absNs}.LogsmithOutput.Logger;");
+            sb.AppendLine($"        if (__logger is null || !__logger.IsEnabled(global::{absNs}.LogLevel.{levelName}, \"{EscapeString(method.Category)}\"))");
+            sb.AppendLine("            return;");
+        }
+
+        // Sampling guard
+        if (method.SampleRate > 1)
+        {
+            sb.AppendLine();
+            sb.Append(EmitSamplingGuard(method));
+        }
+
+        // Rate-limiting guard
+        if (method.MaxPerSecond > 0)
+        {
+            sb.AppendLine();
+            sb.Append(EmitRateLimitGuard(method));
+        }
+
+        sb.AppendLine();
+
+        // LogEntry construction (uses abstraction namespace)
+        sb.Append(EmitLogEntryConstruction(method, absNs));
+        sb.AppendLine();
+
+        // Text path
+        int bufferSize = EstimateBufferSize(method);
+        sb.AppendLine($"        global::System.Span<byte> __buffer = stackalloc byte[{bufferSize}];");
+        sb.AppendLine($"        var writer = new global::{absNs}.Utf8LogWriter(__buffer);");
+        sb.Append(TextPathEmitter.Emit(method));
+        sb.AppendLine("        var __utf8Message = writer.GetWritten();");
+        sb.AppendLine();
+
+        // Dispatch — check for structured interface
+        string stateTypeName = $"{method.MethodName}State";
+        var messageParams = method.Parameters.Where(p => p.Kind == ParameterKind.MessageParam).ToList();
+
+        sb.Append($"        var __state = new {stateTypeName}(");
+        sb.Append(string.Join(", ", messageParams.Select(p => $"{p.RefKind}{p.Name}")));
+        sb.AppendLine(");");
+        sb.AppendLine($"        if (__logger is global::{absNs}.IStructuredLogsmithLogger __structured)");
+        sb.AppendLine($"            __structured.WriteStructured(in __entry, __utf8Message, __state, WriteProperties_{method.MethodName});");
+        sb.AppendLine("        else");
+        sb.AppendLine("            __logger.Write(in __entry, __utf8Message);");
+
+        // Return any ArrayPool buffer rented during overflow
+        sb.AppendLine("        writer.Dispose();");
+        sb.AppendLine("    }");
+        return sb.ToString();
+    }
+
+    internal static string EmitLogEntryConstruction(LogMethodInfo method, string ns)
     {
         var sb = new StringBuilder();
         string levelName = method.Level >= 0 && method.Level < LogLevelNames.Length
@@ -244,8 +344,8 @@ internal static class MethodEmitter
             }
         }
 
-        sb.AppendLine("        var __entry = new global::Logsmith.LogEntry(");
-        sb.AppendLine($"            level: global::Logsmith.LogLevel.{levelName},");
+        sb.AppendLine($"        var __entry = new global::{ns}.LogEntry(");
+        sb.AppendLine($"            level: global::{ns}.LogLevel.{levelName},");
         sb.AppendLine($"            eventId: {method.EventId},");
         sb.AppendLine("            timestampTicks: global::System.DateTime.UtcNow.Ticks,");
         sb.AppendLine($"            category: \"{EscapeString(method.Category)}\",");
@@ -349,6 +449,14 @@ internal static class MethodEmitter
         return $"{param.RefKind}{type} {param.Name}";
     }
 
+    private static string FormatParameterAbstraction(ParameterInfo param, string absNs)
+    {
+        if (param.Kind == ParameterKind.AbstractionLogger)
+            return $"global::{absNs}.ILogsmithLogger {param.Name}";
+
+        return FormatParameter(param);
+    }
+
     private static string FormatType(ParameterInfo param)
     {
         string type = param.TypeFullName;
@@ -398,6 +506,20 @@ internal static class MethodEmitter
         }
 
         return sb.ToString();
+    }
+
+    private static bool HasAbstractionLogger(LogMethodInfo method)
+    {
+        return method.Parameters.Any(p => p.Kind == ParameterKind.AbstractionLogger);
+    }
+
+    private static bool NeedsStructuredDispatch(LogMethodInfo method)
+    {
+        // Structured dispatch (state struct + WriteProperties) is needed when:
+        //   - No explicit sink (dispatches via LogManager which forwards to structured sinks), OR
+        //   - Abstraction mode with explicit ILogsmithLogger (always checks for IStructuredLogsmithLogger)
+        return !method.HasExplicitSink ||
+            (method.Mode == GeneratorMode.Abstraction && HasAbstractionLogger(method));
     }
 
     private static string EscapeString(string text)
