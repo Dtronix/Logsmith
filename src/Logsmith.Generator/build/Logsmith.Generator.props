@@ -1,8 +1,5 @@
 <Project>
-  <ItemGroup>
-    <CompilerVisibleProperty Include="LogsmithConditionalLevel" />
-    <CompilerVisibleProperty Include="LogsmithAbstraction" />
-    <CompilerVisibleProperty Include="LogsmithNamespace" />
-    <CompilerVisibleProperty Include="RootNamespace" />
-  </ItemGroup>
+  <PropertyGroup>
+    <LogsmithMode Condition="'$(LogsmithMode)' == ''">Standalone</LogsmithMode>
+  </PropertyGroup>
 </Project>

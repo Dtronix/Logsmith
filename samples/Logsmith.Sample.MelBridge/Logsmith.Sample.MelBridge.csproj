@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
+
+    <LogsmithMode>Shared</LogsmithMode>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,4 +21,7 @@
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0-preview.1.25080.5" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0-preview.1.25080.5" />
   </ItemGroup>
+
+  <!-- Import CompilerVisibleProperty declarations (auto-included via NuGet, manual for ProjectReference) -->
+  <Import Project="../../src/Logsmith/build/Logsmith.props" />
 </Project>

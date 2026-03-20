@@ -20,7 +20,7 @@ public class AbstractionModeTests
 
         var optionsProvider = new TestAnalyzerConfigOptionsProvider(new Dictionary<string, string>
         {
-            ["build_property.LogsmithAbstraction"] = "true",
+            ["build_property.LogsmithMode"] = "Abstraction",
             ["build_property.RootNamespace"] = rootNamespace,
             ["build_property.LogsmithNamespace"] = logsmithNamespace ?? "",
         });
@@ -315,47 +315,6 @@ public class AbstractionModeTests
 
         Assert.That(text, Does.Contain("__sampleCounter_"),
             "Sampling guard should be emitted in abstraction mode");
-    }
-
-    [Test]
-    public void LSMITH009_AbstractionWithSharedMode_ReportsError()
-    {
-        var source = """
-            using Logsmith;
-            namespace TestLib;
-            public static partial class Log
-            {
-                [LogMessage(LogLevel.Information, "Hello")]
-                static partial void Greet();
-            }
-            """;
-
-        // Create compilation WITH Logsmith reference (shared mode)
-        var compilation = GeneratorTestHelper.CreateCompilation(source);
-
-        var optionsProvider = new TestAnalyzerConfigOptionsProvider(new Dictionary<string, string>
-        {
-            ["build_property.LogsmithAbstraction"] = "true",
-            ["build_property.RootNamespace"] = "TestLib",
-        });
-
-        var generator = new LogsmithGenerator();
-        var driver = CSharpGeneratorDriver.Create(
-            generators: [generator.AsSourceGenerator()],
-            optionsProvider: optionsProvider);
-
-        driver = (CSharpGeneratorDriver)driver.RunGeneratorsAndUpdateCompilation(
-            compilation, out var outputCompilation, out _);
-
-        var result = driver.GetRunResult().Results[0];
-
-        // Check for LSMITH009 in generator diagnostics
-        var lsmith009 = result.Diagnostics
-            .Where(d => d.Id == "LSMITH009")
-            .ToList();
-
-        Assert.That(lsmith009, Is.Not.Empty,
-            "Should report LSMITH009 when abstraction mode is used with shared mode");
     }
 
     [Test]

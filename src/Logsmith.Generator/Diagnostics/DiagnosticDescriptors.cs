@@ -68,11 +68,4 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
 
-    internal static readonly DiagnosticDescriptor LSMITH009 = new(
-        id: "LSMITH009",
-        title: "Abstraction mode conflicts with shared mode",
-        messageFormat: "LogsmithAbstraction=true requires standalone mode — remove the Logsmith assembly reference or set LogsmithAbstraction=false",
-        category: "Logsmith",
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
 }

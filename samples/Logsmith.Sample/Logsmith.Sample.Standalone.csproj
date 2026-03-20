@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
+
+    <LogsmithMode>Standalone</LogsmithMode>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,4 +14,7 @@
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <!-- Import CompilerVisibleProperty declarations (auto-included via NuGet, manual for ProjectReference) -->
+  <Import Project="../../src/Logsmith/build/Logsmith.props" />
 </Project>
