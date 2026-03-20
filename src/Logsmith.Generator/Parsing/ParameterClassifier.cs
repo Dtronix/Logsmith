@@ -11,13 +11,21 @@ internal static class ParameterClassifier
         IMethodSymbol method,
         Compilation compilation)
     {
+        return Classify(method, compilation, GeneratorMode.Shared);
+    }
+
+    internal static IReadOnlyList<ParameterInfo> Classify(
+        IMethodSymbol method,
+        Compilation compilation,
+        GeneratorMode mode)
+    {
         var utf8SpanFormattable = compilation.GetTypeByMetadataName("System.IUtf8SpanFormattable");
         var results = new List<ParameterInfo>(method.Parameters.Length);
 
         for (int i = 0; i < method.Parameters.Length; i++)
         {
             var param = method.Parameters[i];
-            var kind = ClassifyParameter(param, compilation, i);
+            var kind = ClassifyParameter(param, compilation, i, mode);
 
             bool isNullableValueType = param.Type.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T;
             bool isNullableReferenceType = param.NullableAnnotation == NullableAnnotation.Annotated
@@ -65,7 +73,8 @@ internal static class ParameterClassifier
     private static ParameterKind ClassifyParameter(
         IParameterSymbol param,
         Compilation compilation,
-        int index)
+        int index,
+        GeneratorMode mode)
     {
         // 1. ILogSink check (only valid as first parameter)
         if (index == 0)
@@ -73,6 +82,20 @@ internal static class ParameterClassifier
             var logSinkType = compilation.GetTypeByMetadataName("Logsmith.ILogSink");
             if (logSinkType != null && IsOrImplements(param.Type, logSinkType))
                 return ParameterKind.Sink;
+
+            // In abstraction mode, also check for ILogsmithLogger as first param
+            if (mode == GeneratorMode.Abstraction)
+            {
+                var logsmithLoggerType = compilation.GetTypeByMetadataName("Logsmith.ILogsmithLogger");
+                if (logsmithLoggerType != null && IsOrImplements(param.Type, logsmithLoggerType))
+                    return ParameterKind.AbstractionLogger;
+
+                // Also check by interface name in case the type is not yet in compilation
+                // (abstraction sources are emitted later)
+                if (param.Type.Name == "ILogsmithLogger" ||
+                    param.Type.ToDisplayString().EndsWith(".ILogsmithLogger"))
+                    return ParameterKind.AbstractionLogger;
+            }
         }
 
         // 2. Exception check
