@@ -139,6 +139,8 @@ internal static class EmbeddedSourceEmitter
 
     /// <summary>
     /// Types that should remain public in abstraction mode.
+    /// These are types consumers need to implement ILogsmithLogger or
+    /// that must be public for interface inheritance consistency.
     /// </summary>
     private static readonly HashSet<string> AbstractionPublicTypeNames = new HashSet<string>
     {
@@ -150,37 +152,43 @@ internal static class EmbeddedSourceEmitter
         "ILogSink",
         "IStructuredLogSink",
         "ILogStructurable",
+        // IFlushableLogSink extends ILogSink — must stay public for
+        // BufferedLogSink's interface implementation consistency
         "IFlushableLogSink",
     };
 
     /// <summary>
     /// Checks if a source file contains types that should remain public in abstraction mode.
-    /// Handles delegates with return types (e.g., "public delegate void WriteProperties").
     /// </summary>
     private static bool IsPublicAbstractionFile(string source)
     {
         foreach (var typeName in AbstractionPublicTypeNames)
         {
-            // Direct match: "public class LogLevel", "public enum LogLevel", etc.
             foreach (var pattern in TypeDeclarationPatterns)
             {
-                if (source.Contains(pattern + typeName))
-                    return true;
-            }
-
-            // Delegate with return type: "public delegate void WriteProperties"
-            if (source.Contains("public delegate ") && source.Contains(" " + typeName))
-            {
-                // More precise check: ensure the type name appears after "public delegate <returntype> "
-                int delegateIdx = source.IndexOf("public delegate ");
-                while (delegateIdx >= 0)
+                // For delegate patterns, the return type sits between "public delegate "
+                // and the type name (e.g., "public delegate void WriteProperties<TState>").
+                // All other patterns are immediately followed by the type name.
+                if (pattern == "public delegate ")
                 {
-                    int lineEnd = source.IndexOf('\n', delegateIdx);
-                    if (lineEnd < 0) lineEnd = source.Length;
-                    string line = source.Substring(delegateIdx, lineEnd - delegateIdx);
-                    if (line.Contains(typeName))
+                    // Match: "public delegate" ... typeName on the same line
+                    int idx = 0;
+                    while ((idx = source.IndexOf(pattern, idx)) >= 0)
+                    {
+                        int lineEnd = source.IndexOf('\n', idx);
+                        if (lineEnd < 0) lineEnd = source.Length;
+                        string line = source.Substring(idx, lineEnd - idx);
+                        // Ensure the type name follows the delegate keyword+return type
+                        // by checking it appears as a word boundary (space before it)
+                        if (line.Contains(" " + typeName))
+                            return true;
+                        idx += pattern.Length;
+                    }
+                }
+                else
+                {
+                    if (source.Contains(pattern + typeName))
                         return true;
-                    delegateIdx = source.IndexOf("public delegate ", delegateIdx + 1);
                 }
             }
         }
@@ -189,52 +197,44 @@ internal static class EmbeddedSourceEmitter
 
     /// <summary>
     /// Rewrites all Logsmith namespace references to the target namespace.
-    /// Handles file-scoped declarations, block-scoped declarations, using directives,
-    /// and fully-qualified references in generated code.
+    /// Uses generic prefix matching so new sub-namespaces are handled automatically.
     /// </summary>
     internal static string RewriteAllNamespaces(string source, string targetNs)
     {
         var result = source;
 
-        // File-scoped namespace: "namespace Logsmith;" or "namespace Logsmith.Sinks;"
-        result = ReplaceNamespaceDeclarations(result, "Logsmith", targetNs);
+        // Replace sub-namespace references first (longer prefix) to avoid partial matches.
+        // Generic: any "Logsmith." prefix becomes "{targetNs}." — covers all sub-namespaces
+        // (Sinks, Formatting, Internal, DynamicLevel, Attributes, and any future additions).
 
-        // Fully-qualified references in source: "Logsmith.LogLevel", "Logsmith.LogManager", etc.
-        // Handle using directives: "using Logsmith;" → "using TargetNs;"
-        result = result.Replace("using Logsmith.Sinks;", $"using {targetNs}.Sinks;");
-        result = result.Replace("using Logsmith.Formatting;", $"using {targetNs}.Formatting;");
-        result = result.Replace("using Logsmith.Internal;", $"using {targetNs}.Internal;");
-        result = result.Replace("using Logsmith.DynamicLevel;", $"using {targetNs}.DynamicLevel;");
-        result = result.Replace("using Logsmith.Attributes;", $"using {targetNs}.Attributes;");
+        // Using directives: "using Logsmith.Sinks;" → "using {targetNs}.Sinks;"
+        result = result.Replace("using Logsmith.", $"using {targetNs}.");
+
+        // Root using: "using Logsmith;" → "using {targetNs};"
         result = result.Replace("using Logsmith;", $"using {targetNs};");
+
+        // Namespace declarations (file-scoped and block-scoped)
+        result = ReplaceNamespaceDeclarations(result, "Logsmith", targetNs);
 
         return result;
     }
 
     /// <summary>
     /// Replaces namespace declarations (both file-scoped and block-scoped).
-    /// Handles sub-namespaces: "Logsmith.Sinks" → "Target.Sinks"
+    /// Uses generic prefix matching for sub-namespaces.
     /// </summary>
     private static string ReplaceNamespaceDeclarations(string source, string sourceNs, string targetNs)
     {
         var result = source;
 
-        // Must replace sub-namespaces first (longer matches) to avoid partial replacement
-        // e.g., "namespace Logsmith.Sinks;" before "namespace Logsmith;"
+        // Sub-namespaces first (longer match) to avoid partial replacement.
+        // "namespace Logsmith.Sinks;" → "namespace {targetNs}.Sinks;" etc.
+        result = result.Replace($"namespace {sourceNs}.", $"namespace {targetNs}.");
 
-        // File-scoped sub-namespaces
-        result = result.Replace($"namespace {sourceNs}.Sinks;", $"namespace {targetNs}.Sinks;");
-        result = result.Replace($"namespace {sourceNs}.Formatting;", $"namespace {targetNs}.Formatting;");
-        result = result.Replace($"namespace {sourceNs}.Internal;", $"namespace {targetNs}.Internal;");
-        result = result.Replace($"namespace {sourceNs}.DynamicLevel;", $"namespace {targetNs}.DynamicLevel;");
-        result = result.Replace($"namespace {sourceNs}.Attributes;", $"namespace {targetNs}.Attributes;");
-
-        // Root namespace (file-scoped)
+        // Root namespace (file-scoped): "namespace Logsmith;" → "namespace {targetNs};"
         result = result.Replace($"namespace {sourceNs};", $"namespace {targetNs};");
 
-        // Block-scoped variants
-        result = result.Replace($"namespace {sourceNs}.Sinks\r\n", $"namespace {targetNs}.Sinks\r\n");
-        result = result.Replace($"namespace {sourceNs}.Sinks\n", $"namespace {targetNs}.Sinks\n");
+        // Block-scoped root: "namespace Logsmith\n{" → "namespace {targetNs}\n{"
         result = result.Replace($"namespace {sourceNs}\r\n", $"namespace {targetNs}\r\n");
         result = result.Replace($"namespace {sourceNs}\n", $"namespace {targetNs}\n");
 
