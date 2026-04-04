@@ -80,11 +80,12 @@ ILogger                          Primary interface, default implementations for 
 ILogger<T>                       Generic variant, category from type name
 LoggerContext                    Internal state: category, path, level, sinks, config
 LogCarrier_N (generated)         Per-chain carrier implementing ILogger, thread-static pooled
-NullLogger                       Singleton, IsEnabled always false, all methods no-op
+NullLogger                       Singleton with sentinel context (IsEnabled always false)
 DispatchInfo                     Ref struct carrying all dispatch parameters to sinks
-LogDebugHandler (etc.)           InterpolatedStringHandler ref structs per log level
+LogDebugHandler (etc.)           InterpolatedStringHandler ref structs per log level (one per level)
 LogHandlerCore                   Shared handler implementation (UTF-8 + JSON dual write)
-TimingOperation                  Timed operation handle: Complete/Fail/TimeStep + ILogger + IDisposable
+LogScope                         Struct (ILogger + IDisposable) returned by Scoped() extension
+TimingOperation                  Struct (ILogger + IDisposable) returned by TimeOperation() extension
 ```
 
 ### The Three Logging Tiers
@@ -149,23 +150,23 @@ public interface ILogger
     void Critical(string message);
     void Critical(Exception? ex, string message);
 
-    // --- Chain methods (all return ILogger for fluent chaining) ---
+    // --- Chain methods (all return ILogger, defaults return this — generator replaces at call sites) ---
 
     ILogger When(bool condition) => condition ? this : NullLogger.Instance;
-    ILogger Sampled(int rate);      // emit 1-in-N calls
-    ILogger RateLimited(int maxPerSecond); // max N per second (sliding window)
-    ILogger Tagged(string tag);
-    ILogger Tagged(params ReadOnlySpan<string> tags);
+    ILogger Sampled(int rate) => this;
+    ILogger RateLimited(int maxPerSecond) => this;
+    ILogger Tagged(string tag) => this;
 
     // --- Scoping & hierarchy ---
+    // Note: Scoped() is NOT on ILogger — it is an extension method returning
+    // a concrete LogScope struct (see Decision 14). This avoids boxing.
 
-    ILogger Scoped([InterpolatedStringHandlerArgument("")] ref LogScopeHandler handler);
     ILogger CreateChild(string? segment = null);
     string? PathSegment { get; set; }
 
     // --- Timed operations ---
-
-    TimingOperation TimeOperation([InterpolatedStringHandlerArgument("")] ref LogTimingHandler handler);
+    // Note: TimeOperation() is NOT on ILogger — it is an extension method returning
+    // a concrete TimingOperation struct (see Decision 16). This avoids boxing.
 }
 
 public interface ILogger<T> : ILogger
@@ -284,7 +285,7 @@ public ref struct LogDebugHandler
 logger.Debug($"User {userId} processing {itemCount} items");
 // structured: {"userId":"user-123","itemCount":5}
 
-logger.Info($"Order has {order.Items.Count} items totaling {order.Total:F2}");
+logger.Information($"Order has {order.Items.Count} items totaling {order.Total:F2}");
 // structured: {"order.Items.Count":3,"order.Total":99.95}
 ```
 
@@ -382,11 +383,11 @@ static ILogger __When_42(this ILogger logger, bool condition)
     if (!condition) return NullLogger.Instance;
     if (!logger.Context.IsEnabled(LogLevel.Debug)) return NullLogger.Instance;
     // Sampling — rate 100 baked from .Sampled(100) via static analysis
-    if (Interlocked.Increment(ref __counter_42) % 100 != 0) return NullLogger.Instance;
+    if ((uint)Interlocked.Increment(ref __counter_42) % 100 != 0) return NullLogger.Instance;
     
     var carrier = t_carrier ??= new LogCarrier_0();
     if (carrier._inUse)
-        carrier = new LogCarrier_0(); // rare re-entrant path (sink callback logging)
+        return NullLogger.Instance; // re-entrant call (sink callback) — silently drop
     carrier._inUse = true;
     carrier.Context = logger.Context;
     return carrier;
@@ -428,7 +429,7 @@ static void __Debug_42(this ILogger logger, ref LogDebugHandler handler)
 }
 ```
 
-**Re-entrancy**: If a sink callback triggers another log call while a carrier is in use, the `_inUse` guard detects it and allocates a fresh carrier. This is rare (only happens with logging-from-sinks) and the allocation is acceptable. Normal logging path uses the pooled thread-static carrier with zero allocation.
+**Re-entrancy**: If a sink callback triggers another log call while a carrier is in use, the `_inUse` guard returns `NullLogger.Instance` — the re-entrant log is silently dropped. This is a documented limitation. Re-entrant logging from sinks is rare and typically indicates a misconfigured sink. Normal logging path uses the pooled thread-static carrier with zero allocation.
 
 #### Chain Rules (Enforced by Analyzer)
 
@@ -467,6 +468,8 @@ NullLogger propagation: handler constructor receives NullLogger, `IsEnabled` ret
 
 **Critical finding**: `[Conditional]` on an interceptor method does NOT remove the call. It must be on the original method.
 
+**Validated**: `[Conditional]` works correctly with `ref` struct handler parameters — the entire call site (including handler construction) is removed when the symbol is not defined. Tested in `prototype/ConditionalTest/` (Test 4: `sideEffect4 = 0` with `ref TraceRefHandler`). This is a C# behavior where the compiler treats handler construction as parameter evaluation, which is stripped along with the call.
+
 ```csharp
 // Static methods for hot-loop stripping
 public static class Log
@@ -475,14 +478,24 @@ public static class Log
     public static void Trace(ILogger logger, ref LogTraceHandler handler)
     {
         if (!handler.IsEnabled) return;
-        logger.Context.Dispatch(LogLevel.Trace, ...);
+        logger.Context.Dispatch(new DispatchInfo
+        {
+            Level = LogLevel.Trace,
+            Text = handler.GetTextWritten(),
+            Json = handler.GetJsonWritten()
+        });
     }
 
     [Conditional("LOGSMITH_DEBUG")]
     public static void Debug(ILogger logger, ref LogDebugHandler handler)
     {
         if (!handler.IsEnabled) return;
-        logger.Context.Dispatch(LogLevel.Debug, ...);
+        logger.Context.Dispatch(new DispatchInfo
+        {
+            Level = LogLevel.Debug,
+            Text = handler.GetTextWritten(),
+            Json = handler.GetJsonWritten()
+        });
     }
 
     // Information and above — always present, no [Conditional]
@@ -572,6 +585,8 @@ Version-based caching: only rebuild formatted path when `CalculateVersionSum()` 
 
 **Thread safety**: `PathSegment` setter uses `Volatile.Write` for the string reference and `Interlocked.Increment` for the version counter. `CalculateVersionSum()` uses `Volatile.Read`. This ensures visibility on weakly-ordered architectures (ARM64). On x86, these compile to regular reads/writes (no overhead). Guard behind `#if` ARM compiler flag if needed.
 
+**Known trade-off (TOCTOU)**: There is a window between `Volatile.Write` (segment) and `Interlocked.Increment` (version) where a reader may see the new segment but old version, causing one log entry to use a stale cached path. This is acceptable — `PathSegment` mutation is rare (connection ID assignment) and a one-entry stale path is harmless for logging.
+
 ```csharp
 public string? Segment
 {
@@ -588,16 +603,30 @@ public string? Segment
 
 **Decision**: Scopes are explicit struct wrappers, not ambient `AsyncLocal` state. The scope IS a logger that chains to its parent context. **Scopes only add a path segment** — they do not persist structured properties into child log calls.
 
+`Scoped()` is an **extension method** (not on `ILogger`) that returns a concrete `LogScope` struct. This avoids boxing and enables `using var` pattern. It accepts a plain `string` — no `InterpolatedStringHandler` — because only the path segment text is used. No structured property capture occurs.
+
+```csharp
+// LogScope: concrete struct implementing both ILogger and IDisposable
+public struct LogScope : ILogger, IDisposable
+{
+    private readonly LoggerContext _context;
+    public LoggerContext Context => _context;
+    public void Dispose() { /* pop path segment from context */ }
+}
+
+// Extension method (not on ILogger interface — avoids boxing):
+public static LogScope Scoped(this ILogger logger, string segment) { ... }
+```
+
 ```csharp
 using var reqScope = logger.Scoped($"Request-{requestId}");
-// reqScope wraps a new LoggerContext linked to logger's context
-// The interpolated string becomes the path segment: "Request-abc"
+// reqScope is a LogScope struct wrapping a new LoggerContext
+// Path segment: "Request-abc" (the interpolated string evaluates to a string)
 
 reqScope.Debug($"Processing {itemId}...");
 // Output: [DBG MyApp|Request-abc] Processing item-1...
 // structured: {"itemId":"item-1","message":"Processing item-1..."}
-// Note: requestId is NOT automatically in the structured output.
-// It is in the PATH: MyApp|Request-abc
+// Note: requestId is NOT in the structured output — it is in the PATH.
 
 // Nested:
 using var dbScope = reqScope.Scoped($"DB-{queryName}");
@@ -605,9 +634,9 @@ dbScope.Debug($"Executing");
 // Output: [DBG MyApp|Request-abc|DB-Users] Executing
 ```
 
-**Why no persistent scope properties**: Persistent properties would require each `Dispatch()` call to walk the context chain and merge parent properties into the JSON output. This adds overhead to every log call, even those with no scope. The path segment already carries the identity. If users need specific properties, they include them in the interpolated string at each call site — this is explicit and zero-overhead when not used.
+**Why plain string, not InterpolatedStringHandler**: Using a handler would decompose `$"Request-{requestId}"` into text + JSON properties, but then discard the JSON silently. This is confusing — every other handler-based method captures structured properties. A plain string makes it clear: scope = path segment, nothing more. If users need structured properties, they include them in each log call's `$"..."`.
 
-`Scoped()` returns a regular struct (not ref struct) so it can cross `await` boundaries. The struct holds a `LoggerContext` reference — zero additional heap allocation beyond the context.
+**Why not on ILogger**: Returning `LogScope` (a value type) from an interface method would box it. As an extension method, the return type is the concrete struct — zero heap allocation. `LogScope` can cross `await` boundaries (it's a regular struct, not ref struct).
 
 ### 15. Tags — Orthogonal Event Classification
 
@@ -616,7 +645,7 @@ dbScope.Debug($"Executing");
 ```csharp
 logger.Tagged("SQL").Debug($"Query {query} returned {rows} rows");
 logger.Tagged("HTTP").Information($"GET {path} -> {status}");
-logger.Tagged("AUTH", "SECURITY").Warning($"Failed login for {user}");
+logger.Tagged("AUTH").Warning($"Failed login for {user}");
 
 // Filtering in config:
 cfg.SetTagLevel("SQL", LogLevel.Warning);
@@ -780,6 +809,27 @@ These were flagged during the engineering review and have been resolved:
 | P4 | Disabled cost estimates | **Cost table added.** Direct ~3-5ns, Chained ~8-15ns, Static 0ns. |
 | P5 | Chain detection false positives | **Requirement noted.** Generator must resolve each chain call through `SemanticModel` to confirm `ILogger` receiver type. |
 
+**Round 2 resolutions:**
+
+| ID | Issue | Resolution |
+|----|-------|------------|
+| R2-1 | Re-entrancy code contradicted decision | **Fixed.** Code now returns `NullLogger.Instance` on re-entry, matching the decision. |
+| R2-2 | Chain methods lack default implementations | **Fixed.** `Sampled`, `RateLimited`, `Tagged` all get `=> this;` defaults. |
+| R2-3 | `[Conditional]` with `ref` params | **Validated.** Prototype confirms it works (Test 4: sideEffect4=0). Noted in doc. |
+| R2-4 | Carrier not released on Dispatch exception | **Accepted.** If Dispatch throws, something is catastrophically wrong. Error handler should catch sink exceptions before they propagate. |
+| R2-5 | Scoped() return type / boxing | **Fixed.** `Scoped()` is now an extension method returning concrete `LogScope` struct. Not on `ILogger` interface. No boxing. Accepts plain `string`, not handler. |
+| R2-6 | Static tier uses old Dispatch signature | **Fixed.** Updated to use `Dispatch(new DispatchInfo { ... })`. |
+| R2-7 | PathSegment TOCTOU race | **Accepted as trade-off.** Path rendering may be one log call stale after concurrent mutation. Documented. |
+| R2-8 | Multi-tag vs single tag | **Deferred.** Multi-tag overload removed. Ship with single `Tagged(string tag)`. Add multi-tag in future version. |
+| R2-9 | `logger.Info()` naming | **Fixed.** Changed to `logger.Information()` throughout. |
+| R2-10 | NullLogger.Context is null | **Fixed.** NullLogger has a static sentinel `LoggerContext` with `MinimumLevel = None`. |
+| R2-11 | GetJsonWritten guard not in prototype | **Marked** as "not yet in prototype" in Limitations table. |
+| R2-12 | Sampling counter signed overflow | **Fixed.** Cast to `(uint)` before modulo. |
+| R2-13 | Scoped() handler discards structured data | **Resolved.** Scoped() now takes plain `string`, not handler. No surprise discard. |
+| R2-14 | Missing handler types in Core Types | **Fixed.** `LogScope` and `TimingOperation` added. |
+| R2-15 | DispatchInfo forces synchronous sink consumption | **Documented** in Prototype Limitations. Zero-alloc applies up to dispatch boundary. |
+| R2-16 | Scoped() struct returned as ILogger boxes | **Resolved by R2-5.** `Scoped()` returns concrete `LogScope` struct, not `ILogger`. No boxing. |
+
 ---
 
 ## Outstanding Questions and Decisions
@@ -800,35 +850,17 @@ These were flagged during the engineering review and have been resolved:
 
 **Leaning**: Option B — dedicated method, not a level. It's behavioral, not a severity.
 
-### 3. Scoped() Return Type
-**Question**: `Scoped()` returns a struct for async boundary crossing. But the struct needs to implement ILogger AND IDisposable. What's the exact type?
-
-**Option A**: `LogScope : ILogger, IDisposable` struct wrapping `LoggerContext`
-**Option B**: Returns a new `ILogger` (class) that auto-disposes
-**Option C**: Returns a generated carrier implementing ILogger + IDisposable
-
-**Leaning**: Option A — simple struct. The `LoggerContext` is the only heap allocation (shared, pooled).
-
-### 4. Tag Storage in Carrier
-**Question**: Tags can be a single string or multiple strings (`Tagged("AUTH", "SECURITY")`). How are they stored in the carrier?
-
-**Option A**: Single `string?` field — most calls have one tag
-**Option B**: `string[]?` field — supports multiple tags
-**Option C**: Comma-delimited string — simple but parsing overhead
-
-**Leaning**: Option A for common case, with an overload that takes `params ReadOnlySpan<string>` for multi-tag. Note: `params ReadOnlySpan<string>` requires C# 13 (.NET 9+), which is within the .NET 10 target.
-
-### 5. Event ID Generation
+### 3. Event ID Generation
 **Question**: Current Logsmith uses FNV-1a hash of `"ClassName.MethodName"`. With inline logging, there's no method name. What do we hash?
 
 **Leaning**: Hash the interpolated string template text (literal parts only, not values). `"Draw call  completed in ms"` → stable event ID. The generator sees the template at compile time.
 
-### 6. Configuration Inheritance
+### 4. Configuration Inheritance
 **Question**: How does `LoggerContext` inherit configuration from parent? Does `CreateChild()` share the same `SinkSet` or copy it? Can child loggers override minimum level?
 
 **Leaning**: Children share parent's `SinkSet` by reference. `MinimumLevel` can be overridden per child. Category overrides apply based on the child's category (if different from parent).
 
-### 7. Generator Chain Detection Algorithm
+### 5. Generator Chain Detection Algorithm
 **Question**: The generator needs to walk the syntax tree from the terminal `.Debug()` call backwards through the chain.
 
 **Requirement**: The generator must resolve each chain call through `SemanticModel` to confirm the receiver is `ILogger` (not just match on method names). This prevents false positives on unrelated types that happen to have `.When()` or `.Tagged()` methods.
@@ -857,8 +889,10 @@ The prototypes validate the design concepts but have known gaps that will be add
 | **Text path formatting** | `value?.ToString()` allocates a string per formatted value | `IUtf8SpanFormattable.TryFormat` writes directly to UTF-8 buffer, zero alloc for primitive types |
 | **Nullable JSON** | `int?` falls through to `ToString()` → boxed, written as string | Add `typeof(T) == typeof(int?)` branches with `Unsafe.As<T, int?>(ref value).Value` |
 | **Enum JSON** | Enums fall through to `ToString()` → boxed, written as string | Add enum detection via `typeof(T).IsEnum` with JIT-specialized branches |
-| **JSON idempotency** | `GetJsonWritten()` throws if called twice | `_jsonFinalized` boolean guard returns cached span on subsequent calls |
+| **JSON idempotency** | `GetJsonWritten()` throws if called twice | `_jsonFinalized` boolean guard returns cached span on subsequent calls (not yet in prototype) |
 | **Re-entrancy** | Not handled — carrier corruption possible | `_inUse` flag on carrier; re-entrant calls return NullLogger (silent drop) |
+| **Sampling counter** | `int` overflow wraps to negative, `%` still works by accident | Cast to `(uint)` before modulo for correctness across overflow boundary |
+| **DispatchInfo ref struct** | `ReadOnlySpan<byte>` fields force synchronous consumption | Sinks that buffer for async I/O must copy span data to heap inside `Dispatch()`. Zero-alloc claim applies up to the dispatch boundary only. |
 
 ---
 
