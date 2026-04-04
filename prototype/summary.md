@@ -921,38 +921,114 @@ These were flagged during the engineering review and have been resolved:
 
 ---
 
-## Outstanding Questions and Decisions
+## Final Decisions (formerly Outstanding Questions)
 
-### 1. Handler Type Consolidation
-**Question**: Do we need separate handler types per log level (`LogDebugHandler`, `LogErrorHandler`, etc.) or can we use a single `LogHandler` with a level parameter?
+### Handler Type Consolidation — Separate Per Level
 
-**Trade-off**: Separate types allow `[InterpolatedStringHandlerArgument]` to pass the level implicitly (from the method name). A single type needs the level passed explicitly, which means either a generic `Log(LogLevel, ...)` method or a different mechanism.
+**Decision**: Separate handler types per log level. Each is a thin wrapper around `LogHandlerCore` with the level baked into the constructor.
 
-**Leaning**: Separate types — they're thin wrappers around `LogHandlerCore` (already validated in prototype). The boilerplate is in the generator, not user-facing.
+```csharp
+[InterpolatedStringHandler]
+public ref struct LogDebugHandler
+{
+    private LogHandlerCore _core;
 
-### 2. DPanic Level
-**Question**: Zap's `DPanic` throws in Debug builds, logs Error in Release. Do we add this as a log level or a method modifier?
+    public LogDebugHandler(int literalLength, int formattedCount,
+        ILogger logger, out bool isEnabled)
+        => _core = new(literalLength, formattedCount, logger, LogLevel.Debug, out isEnabled);
 
-**Option A**: New log level `LogLevel.DPanic` between Error and Critical
-**Option B**: Method on ILogger: `logger.DPanic($"invariant broken")` that checks build configuration
-**Option C**: Chain modifier: `logger.PanicInDebug().Error($"...")`
+    // Exception overload:
+    public LogDebugHandler(int literalLength, int formattedCount,
+        ILogger logger, Exception? ex, out bool isEnabled)
+        => _core = new(literalLength, formattedCount, logger, LogLevel.Debug, out isEnabled, ex);
 
-**Leaning**: Option B — dedicated method, not a level. It's behavioral, not a severity.
+    public void AppendLiteral(string s) => _core.AppendLiteral(s);
+    public void AppendFormatted<T>(T value,
+        [CallerArgumentExpression(nameof(value))] string? name = null)
+        => _core.AppendFormatted(value, name);
+    public void AppendFormatted<T>(T value, string? format,
+        [CallerArgumentExpression(nameof(value))] string? name = null)
+        => _core.AppendFormatted(value, format, name);
+    public void AppendFormatted(string? value,
+        [CallerArgumentExpression(nameof(value))] string? name = null)
+        => _core.AppendFormatted(value, name);
 
-### 3. Event ID Generation
-**Question**: Current Logsmith uses FNV-1a hash of `"ClassName.MethodName"`. With inline logging, there's no method name. What do we hash?
+    public bool IsEnabled => _core.IsEnabled;
+    public ReadOnlySpan<byte> GetTextWritten() => _core.GetTextWritten();
+    public ReadOnlySpan<byte> GetJsonWritten() => _core.GetJsonWritten();
+}
 
-**Leaning**: Hash the interpolated string template text (literal parts only, not values). `"Draw call  completed in ms"` → stable event ID. The generator sees the template at compile time.
+// LogTraceHandler, LogInformationHandler, LogWarningHandler,
+// LogErrorHandler, LogCriticalHandler — identical pattern, respective LogLevel.
+```
 
-### 4. Configuration Inheritance
-**Question**: How does `LoggerContext` inherit configuration from parent? Does `CreateChild()` share the same `SinkSet` or copy it? Can child loggers override minimum level?
+**Rationale**: Clean method signatures (`logger.Debug($"...")` with no hidden parameters). The boilerplate is in the generator (Stage 1 emits all 6 types), not user-facing. A single `LogHandler` would require a hidden `LogLevel __level = LogLevel.Debug` default parameter that leaks into IntelliSense.
 
-**Leaning**: Children share parent's `SinkSet` by reference. `MinimumLevel` can be overridden per child. Category overrides apply based on the child's category (if different from parent).
+### DPanic — Dedicated Method
 
-### 5. Generator Chain Detection Algorithm
-**Question**: The generator needs to walk the syntax tree from the terminal `.Debug()` call backwards through the chain.
+**Decision**: `DPanic` is a method on `ILogger`, not a log level. It always dispatches at `LogLevel.Error` and additionally throws `InvalidOperationException` in `DEBUG` builds.
 
-**Requirement**: The generator must resolve each chain call through `SemanticModel` to confirm the receiver is `ILogger` (not just match on method names). This prevents false positives on unrelated types that happen to have `.When()` or `.Tagged()` methods.
+```csharp
+// Default implementation on ILogger:
+void DPanic([InterpolatedStringHandlerArgument("")] ref LogErrorHandler handler)
+{
+    if (!handler.IsEnabled) return;
+    Context.Dispatch(new DispatchInfo
+    {
+        Level = LogLevel.Error,
+        Text = handler.GetTextWritten(),
+        Json = handler.GetJsonWritten()
+    });
+#if DEBUG
+    throw new InvalidOperationException(
+        "DPanic: " + Encoding.UTF8.GetString(handler.GetTextWritten()));
+#endif
+}
+
+// Exception overload:
+void DPanic(Exception? ex, [InterpolatedStringHandlerArgument("", "ex")] ref LogErrorHandler handler);
+```
+
+**Rationale**: DPanic is behavioral (throw in dev, log in prod), not a severity. Adding it as a `LogLevel` would complicate level filtering. As a method, it's discoverable and self-documenting.
+
+### Event ID Generation — Template Literal Hash
+
+**Decision**: FNV-1a hash of the concatenated literal parts of the interpolated string (excluding values). The generator sees the template at compile time.
+
+```
+logger.Debug($"Draw call {id} completed in {ms}ms");
+// Literals: "Draw call " + " completed in " + "ms"
+// Concatenated: "Draw call  completed in ms"
+// FNV-1a hash: 0x7A3F2B01
+```
+
+- Same template at different call sites → same event ID
+- Different templates → different event IDs
+- Renaming variables does NOT change the event ID (only literals matter)
+- String overloads (`logger.Debug("static message")`) → hash the entire string
+
+### Configuration Inheritance — Share by Reference, Allow Override
+
+**Decision**: `CreateChild()` creates a child `LoggerContext` that shares the parent's `SinkSet` by reference. `MinimumLevel` can be overridden per child. Reconfiguring the parent automatically affects all children.
+
+```csharp
+ILogger parent = LogManager.GetLogger("Server");
+ILogger child = parent.CreateChild("Client-42");
+// child.Context.Sinks == parent.Context.Sinks (same reference)
+// child.Context.MinimumLevel defaults to parent's level
+
+// Override child level independently:
+child.Context.MinimumLevel = LogLevel.Warning;
+// child is now Warning+, parent is still Debug+
+
+// Reconfigure parent sinks — children see the new sink automatically:
+LogManager.Reconfigure(cfg => cfg.AddFileSink("server.log"));
+// Both parent and child dispatch to the new file sink
+```
+
+### Generator Chain Detection — Semantic Analysis Required
+
+**Decision**: The generator walks the syntax tree from the terminal `.Debug()` call backwards through the chain. Each chain call must be resolved through `SemanticModel` to confirm the receiver is `ILogger` (not just match on method names). This prevents false positives on unrelated types.
 
 ```
 InvocationExpression: .Debug($"...")
@@ -964,7 +1040,7 @@ InvocationExpression: .Debug($"...")
             IdentifierName: logger ← SemanticModel confirms ILogger type
 ```
 
-Walk the chain collecting method names + arguments. The "chain must be continuous" diagnostic (LSMITH013) fires if any intermediate result is stored in a variable.
+Walk the chain collecting method names + arguments. The "chain must be continuous" diagnostic (LSMITH013) fires if any intermediate result is stored in a variable (parent of invocation is not a `MemberAccessExpressionSyntax`).
 
 ---
 
