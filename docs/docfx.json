@@ -1,0 +1,73 @@
+{
+  "metadata": [
+    {
+      "src": [
+        {
+          "files": [
+            "src/Logsmith/Logsmith.csproj",
+            "src/Logsmith.Extensions.Logging/Logsmith.Extensions.Logging.csproj"
+          ],
+          "src": ".."
+        }
+      ],
+      "dest": "api",
+      "properties": {
+        "TargetFramework": "net10.0"
+      },
+      "filter": "filterConfig.yml",
+      "includePrivateMembers": false
+    }
+  ],
+  "build": {
+    "content": [
+      {
+        "files": [
+          "api/**.yml",
+          "api/index.md"
+        ]
+      },
+      {
+        "files": [
+          "articles/**.md",
+          "articles/**/toc.yml",
+          "internals/**.md",
+          "internals/**/toc.yml",
+          "toc.yml",
+          "*.md"
+        ]
+      }
+    ],
+    "resource": [
+      {
+        "files": [
+          "images/**"
+        ]
+      }
+    ],
+    "dest": "_site",
+    "globalMetadataFiles": [],
+    "fileMetadataFiles": [],
+    "template": [
+      "default",
+      "modern",
+      "templates/logsmith"
+    ],
+    "globalMetadata": {
+      "_appTitle": "Logsmith Documentation",
+      "_appName": "Logsmith",
+      "_appLogoPath": "images/logo-small.png",
+      "_appFaviconPath": "images/logo-small.png",
+      "_enableSearch": true,
+      "_enableNewTab": true,
+      "_disableContribution": false,
+      "_gitContribute": {
+        "repo": "https://github.com/Dtronix/Logsmith",
+        "branch": "master",
+        "apiSpecFolder": "docs/api"
+      }
+    },
+    "postProcessors": [],
+    "keepFileLink": false,
+    "disableGitFeatures": false
+  }
+}
