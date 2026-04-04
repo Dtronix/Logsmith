@@ -1,0 +1,4 @@
+- name: Architecture
+  href: architecture.md
+- name: Diagnostics
+  href: diagnostics.md

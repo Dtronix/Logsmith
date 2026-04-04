@@ -1,0 +1,18 @@
+apiRules:
+  # Include public and protected APIs
+  - include:
+      uidRegex: ^Logsmith
+      type: Namespace
+  - include:
+      uidRegex: ^Logsmith\.
+      type: Type
+      hasAttribute:
+        not: true
+        uid: System.ComponentModel.EditorBrowsableAttribute
+  # Exclude internal namespaces
+  - exclude:
+      uidRegex: ^Logsmith\.Internal
+      type: Namespace
+  - exclude:
+      uidRegex: ^Logsmith\.Generator
+      type: Namespace
