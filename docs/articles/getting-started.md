@@ -47,6 +47,11 @@ When both packages are referenced transitively, **Shared** wins (NuGet evaluates
 
 In Standalone or Abstraction mode, the Logsmith runtime DLL must not leak to consumers. The build emits **LSMITH010** if `PrivateAssets="all"` is missing on the Logsmith package reference.
 
+## What Logsmith Is Not
+
+- **Not a drop-in replacement for `Microsoft.Extensions.Logging`.** The optional `Logsmith.Extensions.Logging` bridge routes MEL `ILogger` calls through Logsmith sinks, but MEL-native sink packages (Seq, Datadog, Application Insights, OpenTelemetry) expect MEL's `ILoggerProvider` ecosystem. Logsmith defines its own `ILogSink` contract for native sinks.
+- **Not a runtime-configurable logging framework.** Log levels can be changed at runtime (including via environment variable polling and config file watching), and sinks can be reconfigured, but message templates and parameter bindings are fixed at compile time. There is no runtime expression evaluator or dynamic template engine.
+
 ## Quick Start
 
 ### 1. Initialize at startup

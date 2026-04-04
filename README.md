@@ -100,7 +100,7 @@ The generator emits fully specialized, zero-allocation UTF8 code for each log me
 
 ## Benchmarks
 
-Full benchmark results comparing Logsmith against MEL, Serilog, NLog, and ZLogger are available in [docs/benchmarks.md](docs/benchmarks.md).
+Full benchmark results comparing Logsmith against MEL, Serilog, NLog, and ZLogger are available in [docs/benchmarks.md](https://dtronix.github.io/Logsmith/articles/performance.html).
 
 ---
 
