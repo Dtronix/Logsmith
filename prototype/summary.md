@@ -93,7 +93,7 @@ TimingOperation                  Struct (ILogger + IDisposable) returned by Time
 | Tier | API | When Disabled | Approx. Cost (disabled) | Use Case |
 |------|-----|---------------|------------------------|----------|
 | **Direct** | `logger.Debug($"...")` | Handler short-circuit | ~3-5ns (IsEnabled + handler ctor + return) | Normal application code |
-| **Chained** | `logger.When(x).Sampled(N).Debug($"...")` | NullLogger propagation + empty handler | ~8-15ns (first-call check + NullLogger through chain + empty handler ctor) | Conditional/sampled logging |
+| **Chained** | `logger.When(x).Sampled(N).Debug($"...")` | NullLogger propagation + empty handler | ~8-15ns base + ~1ns per interpolation hole (first-call check + NullLogger through chain + empty handler ctor + AppendLiteral/AppendFormatted branch-on-false) | Conditional/sampled logging |
 | **Static** | `Log.Trace(logger, $"...")` | `[Conditional]` strips entire call site | 0ns (call site deleted from IL) | Hot loops, tight game loops |
 
 All three tiers flow through `LoggerContext.Dispatch()`.
@@ -118,37 +118,47 @@ public interface ILogger
     bool IsEnabled(LogLevel level) => Context.IsEnabled(level);
 
     // --- Terminal methods: handler overloads (compiler picks for $"...") ---
-    // Each level has: handler, handler+exception, string, string+exception
+    // All terminal methods have default implementations that dispatch through Context.
+    // Implementors only need to provide the Context property.
+    // Shown for Debug; all other levels (Trace, Information, Warning, Error, Critical) are identical.
 
-    void Trace([InterpolatedStringHandlerArgument("")] ref LogTraceHandler handler);
-    void Trace(Exception? ex, [InterpolatedStringHandlerArgument("", "ex")] ref LogTraceHandler handler);
-    void Trace(string message);
-    void Trace(Exception? ex, string message);
+    void Debug([InterpolatedStringHandlerArgument("")] ref LogDebugHandler handler)
+    {
+        if (!handler.IsEnabled) return;
+        Context.Dispatch(new DispatchInfo
+        {
+            Level = LogLevel.Debug,
+            Text = handler.GetTextWritten(),
+            Json = handler.GetJsonWritten()
+        });
+    }
 
-    void Debug([InterpolatedStringHandlerArgument("")] ref LogDebugHandler handler);
-    void Debug(Exception? ex, [InterpolatedStringHandlerArgument("", "ex")] ref LogDebugHandler handler);
-    void Debug(string message);
-    void Debug(Exception? ex, string message);
+    void Debug(Exception? ex, [InterpolatedStringHandlerArgument("", "ex")] ref LogDebugHandler handler)
+    {
+        if (!handler.IsEnabled) return;
+        Context.Dispatch(new DispatchInfo
+        {
+            Level = LogLevel.Debug,
+            Text = handler.GetTextWritten(),
+            Json = handler.GetJsonWritten(),
+            Exception = ex
+        });
+    }
 
-    void Information([InterpolatedStringHandlerArgument("")] ref LogInformationHandler handler);
-    void Information(Exception? ex, [InterpolatedStringHandlerArgument("", "ex")] ref LogInformationHandler handler);
-    void Information(string message);
-    void Information(Exception? ex, string message);
+    void Debug(string message)
+    {
+        if (!IsEnabled(LogLevel.Debug)) return;
+        Context.DispatchString(LogLevel.Debug, message);
+    }
 
-    void Warning([InterpolatedStringHandlerArgument("")] ref LogWarningHandler handler);
-    void Warning(Exception? ex, [InterpolatedStringHandlerArgument("", "ex")] ref LogWarningHandler handler);
-    void Warning(string message);
-    void Warning(Exception? ex, string message);
+    void Debug(Exception? ex, string message)
+    {
+        if (!IsEnabled(LogLevel.Debug)) return;
+        Context.DispatchString(LogLevel.Debug, message, ex);
+    }
 
-    void Error([InterpolatedStringHandlerArgument("")] ref LogErrorHandler handler);
-    void Error(Exception? ex, [InterpolatedStringHandlerArgument("", "ex")] ref LogErrorHandler handler);
-    void Error(string message);
-    void Error(Exception? ex, string message);
-
-    void Critical([InterpolatedStringHandlerArgument("")] ref LogCriticalHandler handler);
-    void Critical(Exception? ex, [InterpolatedStringHandlerArgument("", "ex")] ref LogCriticalHandler handler);
-    void Critical(string message);
-    void Critical(Exception? ex, string message);
+    // Trace, Information, Warning, Error, Critical — identical pattern, respective LogLevel + handler type.
+    // (24 methods total: 6 levels x 4 overloads)
 
     // --- Chain methods (all return ILogger, defaults return this — generator replaces at call sites) ---
 
@@ -161,7 +171,9 @@ public interface ILogger
     // Note: Scoped() is NOT on ILogger — it is an extension method returning
     // a concrete LogScope struct (see Decision 14). This avoids boxing.
 
-    ILogger CreateChild(string? segment = null);
+    ILogger CreateChild(string? segment = null) => NullLogger.Instance;
+    // ILogger.PathSegment delegates to LoggerContext.PathNode.Segment.
+    // NullLogger: setter is no-op, getter returns null.
     string? PathSegment { get; set; }
 
     // --- Timed operations ---
@@ -172,6 +184,55 @@ public interface ILogger
 public interface ILogger<T> : ILogger
 {
     // Category automatically set to typeof(T).Name by factory
+}
+
+// NullLogger: singleton, all operations are no-ops
+public sealed class NullLogger : ILogger
+{
+    public static readonly NullLogger Instance = new();
+
+    private static readonly LoggerContext _nullContext = new()
+    {
+        MinimumLevel = LogLevel.None  // IsEnabled always returns false
+    };
+
+    public LoggerContext Context => _nullContext;
+
+    // PathSegment: getter returns null, setter is no-op (singleton, no shared-state mutation)
+    public string? PathSegment { get => null; set { } }
+
+    // CreateChild on NullLogger returns NullLogger (nothing to create from)
+    public ILogger CreateChild(string? segment = null) => Instance;
+
+    // All terminal and chain methods use ILogger default implementations:
+    // - Terminal defaults: handler.IsEnabled is false → immediate return
+    // - Chain defaults: return this (NullLogger propagates)
+}
+```
+
+**`Scoped()` on NullLogger**: The `Scoped()` extension method receives NullLogger, creates a `LogScope` wrapping the sentinel context. `Dispose()` is a no-op (no path segment to pop from the sentinel). Logging through the scope hits the sentinel's `IsEnabled → false`.
+
+**`TimingOperation` method surface**:
+
+```csharp
+public struct TimingOperation : ILogger, IDisposable
+{
+    private readonly LoggerContext _context;
+    private readonly long _startTicks;
+    private readonly int _operationId;
+    // ... buffered start message
+
+    public LoggerContext Context => _context;
+
+    // Lifecycle
+    public void Complete();                      // logs "completed in Xms" at Information
+    public void Fail(Exception ex);              // logs "failed after Xms" at Error with exception
+    public TimingOperation TimeStep(string name); // creates sub-operation (op:7a3f/1)
+
+    // IDisposable: if neither Complete nor Fail called, logs "abandoned" at Warning
+    public void Dispose();
+
+    // ILogger: all default implementations work — log through _context
 }
 ```
 
@@ -413,7 +474,13 @@ static ILogger __Sampled_42(this ILogger logger, int rate)
 [InterceptsLocation(...)]
 static void __Debug_42(this ILogger logger, ref LogDebugHandler handler)
 {
-    if (!handler.IsEnabled) return;
+    if (!handler.IsEnabled)
+    {
+        // Release carrier even on early-out (dynamic level change between
+        // first interceptor's check and handler ctor's IsEnabled check)
+        if (logger is LogCarrier_0 c2) c2._inUse = false;
+        return;
+    }
     if (logger is LogCarrier_0 c)
     {
         c.Context.Dispatch(new DispatchInfo
@@ -475,7 +542,9 @@ NullLogger propagation: handler constructor receives NullLogger, `IsEnabled` ret
 public static class Log
 {
     [Conditional("LOGSMITH_TRACE")]
-    public static void Trace(ILogger logger, ref LogTraceHandler handler)
+    public static void Trace(
+        ILogger logger,
+        [InterpolatedStringHandlerArgument("logger")] ref LogTraceHandler handler)
     {
         if (!handler.IsEnabled) return;
         logger.Context.Dispatch(new DispatchInfo
@@ -487,7 +556,9 @@ public static class Log
     }
 
     [Conditional("LOGSMITH_DEBUG")]
-    public static void Debug(ILogger logger, ref LogDebugHandler handler)
+    public static void Debug(
+        ILogger logger,
+        [InterpolatedStringHandlerArgument("logger")] ref LogDebugHandler handler)
     {
         if (!handler.IsEnabled) return;
         logger.Context.Dispatch(new DispatchInfo
@@ -499,7 +570,9 @@ public static class Log
     }
 
     // Information and above — always present, no [Conditional]
-    public static void Information(ILogger logger, ref LogInformationHandler handler) { ... }
+    public static void Information(
+        ILogger logger,
+        [InterpolatedStringHandlerArgument("logger")] ref LogInformationHandler handler) { ... }
 }
 
 // Usage — stripped entirely in Release when LOGSMITH_TRACE not defined:
@@ -582,6 +655,8 @@ streamLog.Debug($"Still going");
 ```
 
 Version-based caching: only rebuild formatted path when `CalculateVersionSum()` changes. Zero-alloc path building via ref struct enumerator writing directly to UTF-8 buffer.
+
+**Naming**: `ILogger.PathSegment` delegates to `LoggerContext.PathNode.Segment`. The user-facing name is `PathSegment`; the internal `PathNode` type uses `Segment` since the "Path" context is already implied by the type name.
 
 **Thread safety**: `PathSegment` setter uses `Volatile.Write` for the string reference and `Interlocked.Increment` for the version counter. `CalculateVersionSum()` uses `Volatile.Read`. This ensures visibility on weakly-ordered architectures (ARM64). On x86, these compile to regular reads/writes (no overhead). Guard behind `#if` ARM compiler flag if needed.
 
@@ -768,7 +843,7 @@ The handler `out bool isEnabled` already short-circuits. If the level is disable
 Considered `logger.Enter()` / `logger.Exit()` for automatic method tracing. **Rejected** — too much noise. AOP or a future `[Instrument]` attribute would do this better.
 
 ### Not: Hierarchical Markers
-Considered Log4j2-style parent-child marker hierarchies. **Rejected** — over-engineered. Flat tags with multi-tag support covers 95% of needs.
+Considered Log4j2-style parent-child marker hierarchies. **Rejected** — over-engineered. Flat single-tag filtering covers 95% of needs. Multi-tag may be added in a future version.
 
 ### Not: Namespace Nesting (Zap-style)
 Considered `zap.Namespace("metrics")` for scoping JSON sub-objects. **Rejected** — adds complexity to structured output for rare benefit.
@@ -829,6 +904,20 @@ These were flagged during the engineering review and have been resolved:
 | R2-14 | Missing handler types in Core Types | **Fixed.** `LogScope` and `TimingOperation` added. |
 | R2-15 | DispatchInfo forces synchronous sink consumption | **Documented** in Prototype Limitations. Zero-alloc applies up to dispatch boundary. |
 | R2-16 | Scoped() struct returned as ILogger boxes | **Resolved by R2-5.** `Scoped()` returns concrete `LogScope` struct, not `ILogger`. No boxing. |
+
+**Round 3 resolutions:**
+
+| ID | Issue | Resolution |
+|----|-------|------------|
+| R3-1 | Terminal methods lack default bodies | **Fixed.** Full default implementations shown for Debug (4 overloads). All levels follow identical pattern. |
+| R3-2 | `Log.Trace` missing handler argument attribute | **Fixed.** `[InterpolatedStringHandlerArgument("logger")]` added to all static Log methods. |
+| R3-3 | Carrier `_inUse` not released on handler disabled path | **Fixed.** Terminal interceptor releases carrier before early return when `handler.IsEnabled` is false. |
+| R3-4 | `TimingOperation` methods undeclared | **Fixed.** Method surface specified: `Complete()`, `Fail(Exception)`, `TimeStep(string)`, `Dispose()`. |
+| R3-5 | Stale "multi-tag support" reference | **Fixed.** Changed to "single-tag filtering." |
+| R3-6 | PathSegment vs Segment naming | **Fixed.** Delegation explained: `ILogger.PathSegment` → `PathNode.Segment`. |
+| R3-7 | NullLogger behavior unspecified | **Fixed.** Full `NullLogger` implementation shown: sentinel context, no-op PathSegment, CreateChild returns Instance. |
+| R3-8 | Scoped() on NullLogger unspecified | **Fixed.** Documented: creates LogScope wrapping sentinel context, Dispose is no-op. |
+| R3-9 | Chained cost doesn't note template scaling | **Fixed.** Cost table notes "+~1ns per interpolation hole." |
 
 ---
 
