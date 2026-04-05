@@ -57,52 +57,50 @@ internal sealed class PathNode
     /// </summary>
     internal int WriteUtf8Path(Span<byte> destination)
     {
-        // Collect non-empty segments root-to-leaf using stackalloc
-        // First, count depth
-        var depth = 0;
+        // Pass 1: walk leaf-to-root, compute exact total byte count
+        var totalBytes = 0;
+        var nonEmptyCount = 0;
         var node = this;
-        while (node is not null)
-        {
-            if (!string.IsNullOrEmpty(node.Segment))
-                depth++;
-            node = node.Parent;
-        }
-
-        if (depth == 0)
-            return 0;
-
-        // Collect segments (leaf-to-root order, then reverse)
-        Span<int> indices = stackalloc int[depth];
-        // We'll store references via a second pass; use a simple approach with an array
-        var segments = new string[depth];
-        node = this;
-        var idx = depth - 1;
         while (node is not null)
         {
             var seg = node.Segment;
             if (!string.IsNullOrEmpty(seg))
             {
-                segments[idx] = seg!;
-                idx--;
+                totalBytes += Encoding.UTF8.GetByteCount(seg!);
+                nonEmptyCount++;
             }
             node = node.Parent;
         }
 
-        // Write root-to-leaf with '|' separator
-        var written = 0;
-        for (var i = 0; i < segments.Length; i++)
-        {
-            if (i > 0)
-            {
-                if (written >= destination.Length) return written;
-                destination[written++] = (byte)'|';
-            }
+        if (nonEmptyCount == 0)
+            return 0;
 
-            var bytes = Encoding.UTF8.GetBytes(segments[i], destination.Slice(written));
-            written += bytes;
+        totalBytes += nonEmptyCount - 1; // separators
+
+        // Pass 2: walk leaf-to-root, write right-to-left into destination
+        var writePos = totalBytes;
+        var isFirst = true;
+        node = this;
+        while (node is not null)
+        {
+            var seg = node.Segment;
+            if (!string.IsNullOrEmpty(seg))
+            {
+                if (!isFirst)
+                {
+                    writePos--;
+                    destination[writePos] = (byte)'|';
+                }
+
+                var byteCount = Encoding.UTF8.GetByteCount(seg!);
+                writePos -= byteCount;
+                Encoding.UTF8.GetBytes(seg.AsSpan(), destination.Slice(writePos, byteCount));
+                isFirst = false;
+            }
+            node = node.Parent;
         }
 
-        return written;
+        return totalBytes;
     }
 
     /// <summary>
