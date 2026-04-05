@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Logsmith.Internal;
 
 namespace Logsmith;
@@ -11,6 +12,7 @@ public static class LogManager
     private static int _shutdownCompleted;
 
     private static readonly TimeSpan ProcessExitTimeout = TimeSpan.FromSeconds(5);
+    private static readonly ConcurrentDictionary<string, LoggerContext> _contexts = new();
 
     public static void Initialize(Action<LogConfigBuilder> configure)
     {
@@ -120,6 +122,22 @@ public static class LogManager
         {
             cts?.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Gets or creates a LoggerContext for the given category.
+    /// </summary>
+    public static LoggerContext GetLogger(string category)
+    {
+        return _contexts.GetOrAdd(category, cat => new LoggerContext(cat));
+    }
+
+    /// <summary>
+    /// Gets or creates a LoggerContext for the given type, using the type name as category.
+    /// </summary>
+    public static LoggerContext GetLogger<T>()
+    {
+        return GetLogger(typeof(T).Name);
     }
 
     public static bool IsEnabled(LogLevel level)
@@ -252,6 +270,7 @@ public static class LogManager
     internal static void Reset()
     {
         StopCapturingExceptions();
+        _contexts.Clear();
         var old = _config;
         _config = null;
         Interlocked.Exchange(ref _initialized, 0);
