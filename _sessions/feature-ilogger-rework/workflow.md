@@ -10,9 +10,9 @@ phase: IMPLEMENT
 status: suspended
 issue: discussion
 pr:
-session: 1
+session: 2
 phases-total: 7
-phases-complete: 1
+phases-complete: 5
 
 ## Problem Statement
 Logsmith v2 adds a new ILogger API alongside the existing [LogMessage] attribute pattern — it does NOT replace it. Both APIs share the same underlying sink/dispatch system. The new ILogger API provides an ergonomic alternative using C# interpolated strings with compile-time optimizations via source generator interceptors.
@@ -51,14 +51,20 @@ Design is finalized in prototype/summary.md with all decisions resolved. Prototy
 - 2026-04-04: **Phased implementation** — Multiple commit phases on one branch, each independently buildable/testable.
 
 ## Suspend State
-- Current phase: IMPLEMENT, Phase 2/7 next
-- In progress: Nothing — Phase 1 committed cleanly
-- Immediate next step: Create LoggerContext class and PathNode, refactor LogManager as factory
+- Current phase: IMPLEMENT, Phase 6/7 next
+- In progress: Nothing — Phase 5 committed cleanly
+- Immediate next step: Phase 6 — Generator Stage 2 interceptors + chain carriers
 - WIP commit: None (clean tree)
-- Test status: 260 passing, 0 failures
-- Unrecorded context: None — all decisions in Decisions section
+- Test status: 366 passing (252 runtime + 106 generator + 8 MEL bridge), 0 failures
+- Unrecorded context:
+  - ILogger naming conflict with MEL resolved using `using Log = ...` aliases in samples and `Microsoft.Extensions.Logging.ILogger` explicit qualification in bridge/benchmark code
+  - Generator now dispatches through LoggerContext (not LogManager) for standard mode; emits static `__loggerContext` field per class, inline JSON via Utf8JsonWriter
+  - Default interface methods on ILogger require calling through interface type (e.g., `((ILogger)scope).Debug(...)` not `scope.Debug(...)` for structs)
+  - NullLogger overrides IsEnabled (returns false), CreateChild (returns self), PathSegment (no-op set); chain methods use default interface impls which return `this` (NullLogger)
+  - Phase 6 (interceptors) and Phase 7 (DI/MEL/cleanup) remain
 
 ## Session Log
 | # | Phase Start | Phase End | Summary |
 |---|------------|-----------|---------|
 | 1 | INTAKE | IMPLEMENT | Bootstrapped workflow. Baseline: 266 tests. Completed DESIGN + PLAN + Phase 1 (core dispatch refactor). 260 tests passing. Suspended for context refresh. |
+| 2 | IMPLEMENT | IMPLEMENT | Resumed. Completed Phases 2-5 (LoggerContext, ILogger, Handlers, Static Log + Generator). 366 tests passing. Suspended for context refresh. |

@@ -1,35 +1,57 @@
 # Work Handoff: feature-ilogger-rework
 
 ## Key Components
-- **DispatchInfo** (`src/Logsmith/DispatchInfo.cs`): Ref struct replacing LogEntry. Carries Level, EventId, TimestampTicks, Category, Utf8Message, Utf8Json, Utf8Path, Exception, Tag, CallerFile/Line/Member, ThreadId/ThreadName.
-- **ILogSink** (`src/Logsmith/Sinks/ILogSink.cs`): Unified sink interface with `Write(in DispatchInfo)`. IStructuredLogSink removed.
-- **LogManager** (`src/Logsmith/LogManager.cs`): Currently still the dispatch hub via `Dispatch(in DispatchInfo)`. Phase 2 moves dispatch to LoggerContext.
-- **SinkSet** (`src/Logsmith/Internal/SinkSet.cs`): Simplified to single `ILogSink[] Sinks` array (no text/structured split).
-- **DefaultLogFormatter** (`src/Logsmith/Formatting/DefaultLogFormatter.cs`): Updated for `[time LVL Category|Path #Tag]` format.
-- **BufferedLogSink**: BufferedEntry now stores all DispatchInfo fields with combined byte[] buffer for message+json+path. Has `ToDispatchInfo()` reconstruction method.
-- **RecordingSink**: CapturedEntry now has Tag, JsonMessage, Path fields.
-- **Generator MethodEmitter**: Emits DispatchInfo construction and `LogManager.Dispatch(in __info)`. State structs and WriteProperties removed.
+- **DispatchInfo** (`src/Logsmith/DispatchInfo.cs`): Ref struct carrying Level, EventId, TimestampTicks, Category, Utf8Message, Utf8Json, Utf8Path, Exception, Tag, CallerFile/Line/Member, ThreadId/ThreadName.
+- **ILogSink** (`src/Logsmith/Sinks/ILogSink.cs`): Unified sink interface with `Write(in DispatchInfo)`.
+- **LogManager** (`src/Logsmith/LogManager.cs`): Factory + config holder. `GetLogger()`/`GetLogger<T>()` returns ILogger. `Dispatch()` iterates sinks.
+- **LoggerContext** (`src/Logsmith/LoggerContext.cs`): Central dispatch hub. Fills in Category, TimestampTicks, ThreadId, ThreadName, Utf8Path. Holds PathNode for hierarchical paths. Version-based UTF-8 path caching.
+- **PathNode** (`src/Logsmith/Internal/PathNode.cs`): Linked-list path nodes with volatile segment mutation and interlocked version tracking.
+- **ILogger** (`src/Logsmith/ILogger.cs`): Interface with default implementations for terminal methods (string + handler overloads), chain methods (When/Sampled/Tagged), hierarchy (CreateChild/PathSegment).
+- **LoggerInstance** (`src/Logsmith/LoggerInstance.cs`): Simple ILogger wrapper around LoggerContext.
+- **NullLogger** (`src/Logsmith/NullLogger.cs`): Singleton with IsEnabled=false, CreateChild returns self.
+- **LogScope** (`src/Logsmith/LogScope.cs`): Struct-based ILogger+IDisposable, pushes path segment on create, clears on dispose.
+- **TimingOperation** (`src/Logsmith/TimingOperation.cs`): Struct-based timed operation with Complete/Fail/TimeStep/abandon-on-dispose.
+- **LogHandlerCore** (`src/Logsmith/Handlers/LogHandlerCore.cs`): Ref struct dual-buffer (UTF-8 text + JSON). JIT-specialized WriteJsonProperty for zero-boxing.
+- **LogHandlers** (`src/Logsmith/Handlers/LogHandlers.cs`): Six per-level InterpolatedStringHandler types wrapping LogHandlerCore.
+- **Log** (`src/Logsmith/Log.cs`): Static class with [Conditional] Trace/Debug methods for 0ns compile-time stripping.
+- **Generator MethodEmitter** (`src/Logsmith.Generator/Emission/MethodEmitter.cs`): Emits static `__loggerContext` field per class, dispatches through LoggerContext, inline Utf8JsonWriter for JSON.
 
 ## Completions (This Session)
-- **Phase 1: Core Dispatch Refactor** — Committed as `67a77f3`
-  - Created DispatchInfo ref struct
-  - Updated ILogSink to `Write(in DispatchInfo)`
-  - Removed: LogEntry, LogScope (AsyncLocal), IStructuredLogSink, WriteProperties
-  - Updated all 7 sink implementations (Console, File, Stream, Buffered, Debug, Null, Recording)
-  - Updated ILogFormatter and DefaultLogFormatter with path/tag support
-  - Simplified SinkSet, updated LogManager.Dispatch
-  - Updated generator MethodEmitter for DispatchInfo
-  - Updated Extensions.Logging bridge (BeginScope returns no-op)
-  - Updated all samples, benchmarks, and tests
-  - 260 tests passing (146 runtime + 106 generator + 8 MEL bridge)
+- **Phase 2: LoggerContext + PathNode** — Committed as `eea2d6d`
+  - Created LoggerContext (central dispatch hub)
+  - Created PathNode (hierarchical paths with version-based caching)
+  - LogManager gains GetLogger()/GetLogger<T>() with ConcurrentDictionary caching
+  - 39 new tests (PathNode thread safety, context dispatch, path rendering)
+
+- **Phase 3: ILogger Interface + Types** — Committed as `dea0797`
+  - ILogger with default implementations for all terminal/chain/hierarchy methods
+  - ILogger<T> marker interface
+  - LoggerInstance, NullLogger, LogScope, TimingOperation, LoggerExtensions
+  - LogManager.GetLogger() now returns ILogger
+  - Resolved ILogger naming conflict with MEL using aliases/qualification
+  - 45 new tests
+
+- **Phase 4: InterpolatedStringHandler Infrastructure** — Committed as `56a58bd`
+  - LogHandlerCore ref struct with dual text+JSON buffers
+  - Six per-level handler types with short-circuit constructors
+  - ILogger gains handler-based overloads via [InterpolatedStringHandlerArgument]
+  - 22 new tests (dual-buffer, short-circuit, JSON types, CallerArgumentExpression)
+
+- **Phase 5: Static Log Class + Generator Adaptation** — Committed as `b5c3023`
+  - Static Log class with [Conditional] methods
+  - Generator emits static __loggerContext field, dispatches through context
+  - Generator emits inline Utf8JsonWriter for structured JSON output
+  - DispatchInfo simplified (context fills timestamp/thread/category)
+  - Updated 4 generator tests for new dispatch pattern
 
 ## Previous Session Completions
 - Design document and prototypes (5 commits pre-existing on branch)
+- Phase 1: Core Dispatch Refactor (committed as `67a77f3`)
 
 ## Progress
-- Phase 1/7 complete
-- All 260 tests green
-- Build succeeds across entire solution
+- Phase 5/7 complete
+- All 366 tests green (252 runtime + 106 generator + 8 MEL bridge)
+- Build succeeds across entire solution (including samples and benchmarks)
 
 ## Current State
 - Working tree is clean (committed)
@@ -37,25 +59,22 @@
 - No WIP changes
 
 ## Known Issues / Bugs
-- Utf8Json field in DispatchInfo is always empty for [LogMessage] generated code (JSON emission deferred to Phase 4/5 when handler infrastructure exists)
-- ScopedContextBenchmark._logsmithScope is always null (LogScope removed, explicit scoping not yet implemented)
+- Naming conflict: `Logsmith.Log` (static class) vs user-defined `Log` classes. Samples use `using Log = Namespace.Log;` alias. This is a known trade-off — same pattern as Serilog.Log.
+- ScopedContextBenchmark._logsmithScope is always null (LogScope not yet wired into benchmarks)
+- Chain methods (Sampled/RateLimited/Tagged) are stubs that return `this` — only functional with interceptors (Phase 6)
 
 ## Dependencies / Blockers
-None. Phase 2 can proceed immediately.
+None. Phase 6 can proceed immediately.
 
 ## Architecture Decisions
-- **LoggerContext as central dispatch hub** — LogManager becomes factory/config holder. Both [LogMessage] and new ILogger API will dispatch through LoggerContext. (Decision, not yet implemented — Phase 2)
-- **Pre-built JSON bytes** — Sinks receive UTF-8 JSON in DispatchInfo. No more WriteProperties callback. (Infrastructure ready, JSON emission pending)
-- **No AsyncLocal scoping** — LogScope removed. Explicit struct-based scoping via ILogger.Scoped() coming in Phase 3.
-- **Caller info via interceptors** — Will be baked into generated code at compile time (Phase 6).
+- **ILogger default interface methods**: All terminal/chain/hierarchy methods are default implementations. Only `Context` property is abstract. This means struct types (LogScope, TimingOperation) must be cast to `ILogger` to call default methods — boxing is acceptable for these types since they do I/O.
+- **LoggerContext fills context fields**: When dispatching through LoggerContext, it fills Category, TimestampTicks, ThreadId, ThreadName, Utf8Path. Callers only provide Level, EventId, Utf8Message, Utf8Json, Exception, CallerInfo.
+- **Generator dispatches through LoggerContext**: Standard mode uses `__ctx.Dispatch()`. Explicit sink mode retains direct `sink.Write()` with full DispatchInfo. Abstraction mode retains `__logger.Write()`.
+- **Inline JSON in generator**: Instead of WriteProperties callback, generator emits inline Utf8JsonWriter code for each message parameter with type-aware writes (WriteNumber for int/double, WriteBoolean for bool, WriteString for string/DateTime/Guid).
 
 ## Open Questions
 None. All design decisions resolved in DESIGN phase.
 
 ## Next Work (Priority Order)
-1. **Phase 2: LoggerContext + PathNode** — Create LoggerContext class (central dispatch), PathNode for hierarchical paths, update LogManager as factory with GetLogger()/GetLogger<T>()
-2. **Phase 3: ILogger Interface + Types** — ILogger with default implementations, ILogger<T>, NullLogger, LogScope struct, TimingOperation struct
-3. **Phase 4: Handlers** — LogHandlerCore ref struct, per-level InterpolatedStringHandlers
-4. **Phase 5: Static Log + Generator** — [Conditional] Log class, [LogMessage] generator adaptation for LoggerContext
-5. **Phase 6: Interceptors** — Generator Stage 2 with RegisterImplementationSourceOutput, chain carriers
-6. **Phase 7: DI + MEL + Cleanup** — ServiceCollection integration, MEL bridge update
+1. **Phase 6: Interceptors** — Generator Stage 2 with RegisterImplementationSourceOutput. InterceptorAnalyzer, ChainAnalyzer, InterceptorEmitter, CarrierEmitter, InterceptsLocationEmitter. This enables chain methods to actually work (Tagged, Sampled, etc.) and embeds caller info.
+2. **Phase 7: DI + MEL + Cleanup** — ServiceCollection integration, MEL bridge update, comprehensive cleanup, end-to-end integration tests.
