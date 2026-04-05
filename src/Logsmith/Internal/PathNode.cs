@@ -77,7 +77,9 @@ internal sealed class PathNode
 
         totalBytes += nonEmptyCount - 1; // separators
 
-        // Pass 2: walk leaf-to-root, write right-to-left into destination
+        // Pass 2: walk leaf-to-root, write right-to-left into destination.
+        // Segments may mutate concurrently between passes; guard writePos
+        // and bail with 0 if sizes no longer fit (caller will retry).
         var writePos = totalBytes;
         var isFirst = true;
         node = this;
@@ -89,11 +91,15 @@ internal sealed class PathNode
                 if (!isFirst)
                 {
                     writePos--;
+                    if (writePos < 0)
+                        return 0;
                     destination[writePos] = (byte)'|';
                 }
 
                 var byteCount = Encoding.UTF8.GetByteCount(seg!);
                 writePos -= byteCount;
+                if (writePos < 0)
+                    return 0;
                 Encoding.UTF8.GetBytes(seg.AsSpan(), destination.Slice(writePos, byteCount));
                 isFirst = false;
             }
