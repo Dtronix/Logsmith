@@ -3,6 +3,7 @@ using Logsmith.Extensions.Logging;
 using Logsmith.Sample.MelBridge;
 using Logsmith.Sinks;
 using Microsoft.Extensions.DependencyInjection;
+using Log = Logsmith.Sample.MelBridge.Log;
 using Microsoft.Extensions.Logging;
 
 // ── 1. Initialize Logsmith ─────────────────────────────────────────────

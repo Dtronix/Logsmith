@@ -3,6 +3,7 @@ using System.Text.Json;
 using Logsmith;
 using Logsmith.Sample;
 using Logsmith.Sinks;
+using Log = Logsmith.Sample.Log;
 
 var order = new OrderInfo
 {

@@ -35,6 +35,12 @@ internal static class MethodEmitter
         var category = methods[0].Category;
         innerSb.AppendLine($"    public const string CategoryName = \"{EscapeString(category)}\";");
 
+        // Emit static LoggerContext field for standard/shared mode
+        if (methods[0].Mode != GeneratorMode.Abstraction)
+        {
+            innerSb.AppendLine($"    private static global::Logsmith.LoggerContext? __loggerContext;");
+        }
+
         for (int i = 0; i < methods.Count; i++)
         {
             if (i > 0) innerSb.AppendLine();
@@ -136,7 +142,9 @@ internal static class MethodEmitter
         }
         else
         {
-            sb.AppendLine($"        if (!global::Logsmith.LogManager.IsEnabled(global::Logsmith.LogLevel.{levelName}, \"{EscapeString(method.Category)}\"))");
+            // LoggerContext lazy initialization and IsEnabled check
+            sb.AppendLine($"        var __ctx = __loggerContext ??= global::Logsmith.LogManager.GetLogger(\"{EscapeString(method.Category)}\").Context;");
+            sb.AppendLine($"        if (!__ctx.IsEnabled(global::Logsmith.LogLevel.{levelName}))");
             sb.AppendLine("            return;");
         }
 
@@ -164,8 +172,17 @@ internal static class MethodEmitter
         sb.AppendLine("        var __utf8Message = writer.GetWritten();");
         sb.AppendLine();
 
+        // JSON path (inline) — only if there are message parameters
+        var messageParams = method.Parameters.Where(p => p.Kind == ParameterKind.MessageParam).ToList();
+        bool hasJsonPath = messageParams.Count > 0;
+        if (hasJsonPath)
+        {
+            sb.Append(EmitInlineJsonPath(method, messageParams));
+            sb.AppendLine();
+        }
+
         // DispatchInfo construction
-        sb.Append(EmitDispatchInfoConstruction(method, "Logsmith"));
+        sb.Append(EmitDispatchInfoConstruction(method, "Logsmith", hasJsonPath, method.HasExplicitSink));
         sb.AppendLine();
 
         // Dispatch
@@ -176,7 +193,7 @@ internal static class MethodEmitter
         }
         else
         {
-            sb.AppendLine("        global::Logsmith.LogManager.Dispatch(in __info);");
+            sb.AppendLine("        __ctx.Dispatch(in __info);");
         }
 
         // Return any ArrayPool buffer rented during overflow
@@ -250,8 +267,8 @@ internal static class MethodEmitter
         sb.AppendLine("        var __utf8Message = writer.GetWritten();");
         sb.AppendLine();
 
-        // DispatchInfo construction
-        sb.Append(EmitDispatchInfoConstruction(method, absNs));
+        // DispatchInfo construction (abstraction mode always fills all fields)
+        sb.Append(EmitDispatchInfoConstruction(method, absNs, hasJsonPath: false, isExplicitSink: false));
         sb.AppendLine();
 
         // Dispatch
@@ -263,7 +280,8 @@ internal static class MethodEmitter
         return sb.ToString();
     }
 
-    internal static string EmitDispatchInfoConstruction(LogMethodInfo method, string ns)
+    internal static string EmitDispatchInfoConstruction(LogMethodInfo method, string ns,
+        bool hasJsonPath = false, bool isExplicitSink = false)
     {
         var sb = new StringBuilder();
         string levelName = method.Level >= 0 && method.Level < LogLevelNames.Length
@@ -299,18 +317,132 @@ internal static class MethodEmitter
         sb.AppendLine("        {");
         sb.AppendLine($"            Level = global::{ns}.LogLevel.{levelName},");
         sb.AppendLine($"            EventId = {method.EventId},");
-        sb.AppendLine("            TimestampTicks = global::System.DateTime.UtcNow.Ticks,");
-        sb.AppendLine($"            Category = \"{EscapeString(method.Category)}\",");
+
+        // When dispatching through LoggerContext, it fills in TimestampTicks, Category, ThreadId, ThreadName.
+        // When dispatching through explicit sink, we must fill them ourselves.
+        if (isExplicitSink || ns != "Logsmith")
+        {
+            sb.AppendLine("            TimestampTicks = global::System.DateTime.UtcNow.Ticks,");
+            sb.AppendLine($"            Category = \"{EscapeString(method.Category)}\",");
+        }
+
         sb.AppendLine("            Utf8Message = __utf8Message,");
+
+        if (hasJsonPath)
+        {
+            sb.AppendLine("            Utf8Json = __utf8Json,");
+        }
+
         sb.AppendLine($"            Exception = {exceptionExpr},");
         sb.AppendLine($"            CallerFile = {callerFileExpr},");
         sb.AppendLine($"            CallerLine = {callerLineExpr},");
         sb.AppendLine($"            CallerMember = {callerMemberExpr},");
-        sb.AppendLine("            ThreadId = global::System.Environment.CurrentManagedThreadId,");
-        sb.AppendLine("            ThreadName = global::System.Threading.Thread.CurrentThread.Name,");
+
+        if (isExplicitSink || ns != "Logsmith")
+        {
+            sb.AppendLine("            ThreadId = global::System.Environment.CurrentManagedThreadId,");
+            sb.AppendLine("            ThreadName = global::System.Threading.Thread.CurrentThread.Name,");
+        }
+
         sb.AppendLine("        };");
 
         return sb.ToString();
+    }
+
+    private static string EmitInlineJsonPath(LogMethodInfo method, List<ParameterInfo> messageParams)
+    {
+        var sb = new StringBuilder();
+
+        // Build format specifier lookup
+        var formatSpecifiers = new Dictionary<string, string>();
+        foreach (var part in method.TemplateParts)
+        {
+            if (part.IsPlaceholder && part.BoundParameter != null && part.FormatSpecifier != null)
+                formatSpecifiers[part.BoundParameter.Name] = part.FormatSpecifier;
+        }
+
+        int estimatedSize = messageParams.Count * 64 + 16;
+        sb.AppendLine($"        var __jsonBuffer = new global::System.Buffers.ArrayBufferWriter<byte>({estimatedSize});");
+        sb.AppendLine("        var __jsonWriter = new global::System.Text.Json.Utf8JsonWriter(__jsonBuffer);");
+        sb.AppendLine("        __jsonWriter.WriteStartObject();");
+
+        foreach (var param in messageParams)
+        {
+            formatSpecifiers.TryGetValue(param.Name, out var formatSpec);
+            sb.Append(EmitInlineJsonPropertyWrite(param, formatSpec));
+        }
+
+        sb.AppendLine("        __jsonWriter.WriteEndObject();");
+        sb.AppendLine("        __jsonWriter.Flush();");
+        sb.AppendLine("        var __utf8Json = (global::System.ReadOnlySpan<byte>)__jsonBuffer.WrittenSpan;");
+
+        return sb.ToString();
+    }
+
+    private static string EmitInlineJsonPropertyWrite(ParameterInfo param, string formatSpec)
+    {
+        var sb = new StringBuilder();
+        string accessor = param.Name;
+
+        if (param.IsNullableValueType)
+        {
+            sb.AppendLine($"        if ({accessor}.HasValue)");
+            sb.AppendLine($"            {GetInlineJsonWrite(param.Name, accessor + ".Value", param, formatSpec)}");
+            sb.AppendLine("        else");
+            sb.AppendLine($"            __jsonWriter.WriteNull(\"{param.Name}\");");
+        }
+        else if (param.IsNullableReferenceType)
+        {
+            sb.AppendLine($"        if ({accessor} is not null)");
+            sb.AppendLine($"            {GetInlineJsonWrite(param.Name, accessor, param, formatSpec)}");
+            sb.AppendLine("        else");
+            sb.AppendLine($"            __jsonWriter.WriteNull(\"{param.Name}\");");
+        }
+        else
+        {
+            sb.AppendLine($"        {GetInlineJsonWrite(param.Name, accessor, param, formatSpec)}");
+        }
+
+        return sb.ToString();
+    }
+
+    private static string GetInlineJsonWrite(string propertyName, string accessor, ParameterInfo param, string formatSpec)
+    {
+        if (formatSpec == "json")
+        {
+            return $"{{ __jsonWriter.WritePropertyName(\"{propertyName}\"); global::System.Text.Json.JsonSerializer.Serialize(__jsonWriter, {accessor}); }}";
+        }
+
+        var typeName = param.TypeFullName;
+
+        // Primitive types — write directly without ToString()
+        if (typeName == "int" || typeName == "global::System.Int32")
+            return $"__jsonWriter.WriteNumber(\"{propertyName}\", {accessor});";
+        if (typeName == "long" || typeName == "global::System.Int64")
+            return $"__jsonWriter.WriteNumber(\"{propertyName}\", {accessor});";
+        if (typeName == "double" || typeName == "global::System.Double")
+            return $"__jsonWriter.WriteNumber(\"{propertyName}\", {accessor});";
+        if (typeName == "float" || typeName == "global::System.Single")
+            return $"__jsonWriter.WriteNumber(\"{propertyName}\", {accessor});";
+        if (typeName == "decimal" || typeName == "global::System.Decimal")
+            return $"__jsonWriter.WriteNumber(\"{propertyName}\", {accessor});";
+        if (typeName == "bool" || typeName == "global::System.Boolean")
+            return $"__jsonWriter.WriteBoolean(\"{propertyName}\", {accessor});";
+        if (typeName == "global::System.String" || typeName == "string")
+            return $"__jsonWriter.WriteString(\"{propertyName}\", {accessor});";
+        if (typeName == "global::System.DateTime")
+            return $"__jsonWriter.WriteString(\"{propertyName}\", {accessor});";
+        if (typeName == "global::System.DateTimeOffset")
+            return $"__jsonWriter.WriteString(\"{propertyName}\", {accessor});";
+        if (typeName == "global::System.Guid")
+            return $"__jsonWriter.WriteString(\"{propertyName}\", {accessor});";
+
+        // Format specifier — use ToString(format) then write as string
+        if (formatSpec != null)
+            return $"__jsonWriter.WriteString(\"{propertyName}\", {accessor}.ToString(\"{formatSpec}\"));";
+
+        // Fallback — ToString()
+        return $"__jsonWriter.WriteString(\"{propertyName}\", {accessor}.ToString());";
     }
 
     internal static int EstimateBufferSize(LogMethodInfo method)

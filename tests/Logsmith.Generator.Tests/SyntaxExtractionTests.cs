@@ -86,7 +86,7 @@ public class SyntaxExtractionTests
 
         var generated = GetGeneratedSource(result, "TestNs.Log");
         Assert.That(generated, Does.Contain("DispatchInfo"));
-        Assert.That(generated, Does.Contain("LogManager.Dispatch"));
+        Assert.That(generated, Does.Contain("__ctx.Dispatch"));
     }
 
     [Test]
