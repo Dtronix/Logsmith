@@ -7,12 +7,12 @@ base-branch: master
 
 ## State
 phase: IMPLEMENT
-status: active
+status: suspended
 issue: discussion
 pr:
 session: 1
 phases-total: 7
-phases-complete: 0
+phases-complete: 1
 
 ## Problem Statement
 Logsmith v2 adds a new ILogger API alongside the existing [LogMessage] attribute pattern — it does NOT replace it. Both APIs share the same underlying sink/dispatch system. The new ILogger API provides an ergonomic alternative using C# interpolated strings with compile-time optimizations via source generator interceptors.
@@ -51,8 +51,14 @@ Design is finalized in prototype/summary.md with all decisions resolved. Prototy
 - 2026-04-04: **Phased implementation** — Multiple commit phases on one branch, each independently buildable/testable.
 
 ## Suspend State
+- Current phase: IMPLEMENT, Phase 2/7 next
+- In progress: Nothing — Phase 1 committed cleanly
+- Immediate next step: Create LoggerContext class and PathNode, refactor LogManager as factory
+- WIP commit: None (clean tree)
+- Test status: 260 passing, 0 failures
+- Unrecorded context: None — all decisions in Decisions section
 
 ## Session Log
 | # | Phase Start | Phase End | Summary |
 |---|------------|-----------|---------|
-| 1 | INTAKE | DESIGN | Bootstrapped workflow. Baseline: 266 tests all passing. Branch: feature/ilogger-rework. |
+| 1 | INTAKE | IMPLEMENT | Bootstrapped workflow. Baseline: 266 tests. Completed DESIGN + PLAN + Phase 1 (core dispatch refactor). 260 tests passing. Suspended for context refresh. |
