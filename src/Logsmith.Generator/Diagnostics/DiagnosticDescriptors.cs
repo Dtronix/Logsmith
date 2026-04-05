@@ -68,4 +68,12 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
 
+    internal static readonly DiagnosticDescriptor LSMITH013 = new(
+        id: "LSMITH013",
+        title: "Chain broken by intermediate variable",
+        messageFormat: "ILogger chain is broken by storing an intermediate result in '{0}' — chain interceptors cannot optimize across this boundary",
+        category: "Logsmith",
+        defaultSeverity: DiagnosticSeverity.Info,
+        isEnabledByDefault: true);
+
 }

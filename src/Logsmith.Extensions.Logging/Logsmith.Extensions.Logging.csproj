@@ -3,6 +3,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Logsmith.Generated</InterceptorsNamespaces>
 
     <!-- NuGet packaging -->
     <PackageId>Logsmith.Extensions.Logging</PackageId>

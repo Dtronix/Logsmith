@@ -6,10 +6,14 @@ using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Text;
 using Logsmith.Generator.Diagnostics;
 using Logsmith.Generator.Emission;
+using Logsmith.Generator.Interception;
 using Logsmith.Generator.Models;
 using Logsmith.Generator.Parsing;
+
+#pragma warning disable RSEXPERIMENTAL002
 
 namespace Logsmith.Generator;
 
@@ -133,6 +137,33 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
             }
             // Shared mode: no embedded sources needed
         });
+
+        // Stage 2: ILogger interceptors (RegisterImplementationSourceOutput)
+        // Finds ILogger terminal method calls and chain calls, generates interceptor methods
+        // that add caller info, event IDs, and enable chain functionality.
+        var interceptorProvider = context.SyntaxProvider.CreateSyntaxProvider(
+            predicate: static (node, _) => ChainAnalyzer.IsTerminalCandidate(node),
+            transform: static (ctx, ct) => ChainAnalyzer.AnalyzeTerminalCall(ctx, ct))
+            .Where(static chain => chain is not null);
+
+        context.RegisterImplementationSourceOutput(
+            interceptorProvider.Collect(),
+            static (ctx, chains) =>
+            {
+                var validChains = new List<InterceptorChain>();
+                foreach (var chain in chains)
+                {
+                    if (chain != null)
+                        validChains.Add(chain);
+                }
+
+                if (validChains.Count == 0)
+                    return;
+
+                var source = InterceptorEmitter.Emit(validChains);
+                ctx.AddSource("LogInterceptors.g.cs",
+                    SourceText.From(source, System.Text.Encoding.UTF8));
+            });
     }
 
     /// <summary>
@@ -600,3 +631,5 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
         return null;
     }
 }
+
+#pragma warning restore RSEXPERIMENTAL002

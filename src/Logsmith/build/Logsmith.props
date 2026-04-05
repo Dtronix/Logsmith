@@ -1,6 +1,7 @@
 <Project>
   <PropertyGroup>
     <LogsmithMode Condition="'$(LogsmithMode)' == ''">Shared</LogsmithMode>
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Logsmith.Generated</InterceptorsNamespaces>
   </PropertyGroup>
   <ItemGroup>
     <CompilerVisibleProperty Include="LogsmithMode" />
