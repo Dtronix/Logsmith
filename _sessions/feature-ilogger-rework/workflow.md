@@ -6,7 +6,7 @@ remote: https://github.com/Dtronix/Logsmith.git
 base-branch: master
 
 ## State
-phase: REVIEW
+phase: REMEDIATE
 status: active
 issue: discussion
 pr:
