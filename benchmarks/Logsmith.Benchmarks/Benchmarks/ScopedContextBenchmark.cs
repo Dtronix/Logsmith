@@ -19,7 +19,6 @@ public class ScopedContextBenchmark : BenchmarkBase
     private const string UserName = "alice";
     private const int ActionId = 42;
 
-    private IDisposable? _logsmithScope;
     private IDisposable? _melScope;
     private IDisposable? _serilogScope;
     private IDisposable? _nlogScope;
@@ -38,8 +37,7 @@ public class ScopedContextBenchmark : BenchmarkBase
             .CreateLogger();
 
         // Push one scope property per library.
-        // LogScope (AsyncLocal) removed — Logsmith now uses explicit scoping.
-        // _logsmithScope is left null; Logsmith benchmark runs without ambient scope.
+        // Logsmith uses explicit scoping — no ambient scope in this benchmark.
         _melScope = MelLogger.BeginScope(new KeyValuePair<string, object>("RequestId", "bench-001"));
         _serilogScope = LogContext.PushProperty("RequestId", "bench-001");
         _nlogScope = global::NLog.ScopeContext.PushProperty("RequestId", "bench-001");
@@ -52,7 +50,6 @@ public class ScopedContextBenchmark : BenchmarkBase
         _nlogScope?.Dispose();
         _serilogScope?.Dispose();
         _melScope?.Dispose();
-        _logsmithScope?.Dispose();
         base.Cleanup();
     }
 

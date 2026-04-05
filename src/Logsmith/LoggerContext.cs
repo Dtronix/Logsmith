@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text;
+using System.Threading;
 using Logsmith.Internal;
 
 namespace Logsmith;
@@ -106,21 +107,25 @@ public sealed class LoggerContext
         if (_pathNode is null) return null;
 
         var currentVersion = _pathNode.CalculateVersionSum();
-        if (_cachedPathBytes is not null && _cachedPathVersion == currentVersion)
-            return _cachedPathBytes;
+        if (Volatile.Read(ref _cachedPathVersion) == currentVersion)
+        {
+            var cachedBytes = _cachedPathBytes;
+            if (cachedBytes is not null)
+                return cachedBytes;
+        }
 
         var maxBytes = _pathNode.CalculateMaxByteCount();
         if (maxBytes == 0)
         {
             _cachedPathBytes = null;
-            _cachedPathVersion = currentVersion;
+            Volatile.Write(ref _cachedPathVersion, currentVersion);
             return null;
         }
 
         var buffer = new byte[maxBytes];
         var written = _pathNode.WriteUtf8Path(buffer);
         _cachedPathBytes = buffer.AsSpan(0, written).ToArray();
-        _cachedPathVersion = currentVersion;
+        Volatile.Write(ref _cachedPathVersion, currentVersion);
         return _cachedPathBytes;
     }
 }

@@ -303,6 +303,33 @@ public class LogHandlerTests
         Assert.That(sink.Entries[0].JsonMessage, Is.Null);
     }
 
+    // ── Buffer reuse tests (ThreadBuffer pooling) ─────────��──────────────
+
+    [Test]
+    public void RepeatedHandlerCreation_OnSameThread_ProducesCorrectOutput()
+    {
+        var sink = new RecordingSink();
+        var logger = CreateLogger(sink);
+
+        // First handler
+        var count1 = 10;
+        logger.Debug($"First {count1}");
+
+        // Second handler on same thread — reuses pooled buffers
+        var count2 = 20;
+        logger.Debug($"Second {count2}");
+
+        Assert.That(sink.Entries, Has.Count.EqualTo(2));
+
+        Assert.That(sink.Entries[0].Message, Is.EqualTo("First 10"));
+        var json1 = JsonDocument.Parse(sink.Entries[0].JsonMessage!);
+        Assert.That(json1.RootElement.GetProperty("count1").GetInt32(), Is.EqualTo(10));
+
+        Assert.That(sink.Entries[1].Message, Is.EqualTo("Second 20"));
+        var json2 = JsonDocument.Parse(sink.Entries[1].JsonMessage!);
+        Assert.That(json2.RootElement.GetProperty("count2").GetInt32(), Is.EqualTo(20));
+    }
+
     // ── End-to-end dispatch ─────────────────────────────────────────────
 
     [Test]

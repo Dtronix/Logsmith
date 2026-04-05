@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using Logsmith.Internal;
 
 namespace Logsmith.Handlers;
 
@@ -30,12 +31,12 @@ public ref struct LogHandlerCore
         _exception = exception;
         if (!_enabled) return;
 
-        _textBuffer = new ArrayBufferWriter<byte>(literalLength + formattedCount * 64);
+        _textBuffer = ThreadBuffer.GetHandlerText();
 
         if (formattedCount > 0)
         {
-            _jsonBuffer = new ArrayBufferWriter<byte>(formattedCount * 128 + 16);
-            _jsonWriter = new Utf8JsonWriter(_jsonBuffer);
+            _jsonBuffer = ThreadBuffer.GetHandlerJson();
+            _jsonWriter = ThreadBuffer.GetJsonWriter(_jsonBuffer);
             _jsonWriter.WriteStartObject();
         }
     }
