@@ -20,19 +20,19 @@ public class ConsoleSink : TextLogSink
         _formatter = formatter ?? new DefaultLogFormatter(includeDate: false);
     }
 
-    protected override void WriteMessage(in LogEntry entry, ReadOnlySpan<byte> utf8Message)
+    protected override void WriteMessage(in DispatchInfo info)
     {
         var buf = ThreadBuffer.Get();
 
         if (_colored)
         {
-            var colorCode = GetAnsiColor(entry.Level);
+            var colorCode = GetAnsiColor(info.Level);
             buf.Write(colorCode);
         }
 
-        _formatter.FormatPrefix(in entry, buf);
-        buf.Write(utf8Message);
-        _formatter.FormatSuffix(in entry, buf);
+        _formatter.FormatPrefix(in info, buf);
+        buf.Write(info.Utf8Message);
+        _formatter.FormatSuffix(in info, buf);
 
         if (_colored)
             buf.Write(ResetCode);

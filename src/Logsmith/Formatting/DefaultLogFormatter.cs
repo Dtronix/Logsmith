@@ -22,13 +22,12 @@ public sealed class DefaultLogFormatter : ILogFormatter
         _includeDate = includeDate;
     }
 
-    public void FormatPrefix(in LogEntry entry, IBufferWriter<byte> output)
+    public void FormatPrefix(in DispatchInfo info, IBufferWriter<byte> output)
     {
-        var timestamp = new DateTime(entry.TimestampTicks, DateTimeKind.Utc);
+        var timestamp = new DateTime(info.TimestampTicks, DateTimeKind.Utc);
 
-        // Format: [HH:mm:ss.fff LVL Category] or [yyyy-MM-dd HH:mm:ss.fff LVL Category]
-        // Max: [yyyy-MM-dd HH:mm:ss.fff CRT LongCategory] + space ≈ 80 bytes typical
-        var span = output.GetSpan(256);
+        // Format: [HH:mm:ss.fff LVL Category|Path #Tag] or [yyyy-MM-dd HH:mm:ss.fff LVL Category|Path #Tag]
+        var span = output.GetSpan(512);
         int pos = 0;
 
         span[pos++] = (byte)'[';
@@ -47,16 +46,33 @@ public sealed class DefaultLogFormatter : ILogFormatter
         span[pos++] = (byte)' ';
 
         // Level tag
-        var levelTag = GetLevelTag(entry.Level);
+        var levelTag = GetLevelTag(info.Level);
         levelTag.CopyTo(span[pos..]);
         pos += levelTag.Length;
 
         span[pos++] = (byte)' ';
 
         // Category
-        var catBytes = _categoryUtf8Cache.GetOrAdd(entry.Category, static c => Encoding.UTF8.GetBytes(c));
+        var catBytes = _categoryUtf8Cache.GetOrAdd(info.Category, static c => Encoding.UTF8.GetBytes(c));
         catBytes.CopyTo(span[pos..]);
         pos += catBytes.Length;
+
+        // Path (if present): |Segment1|Segment2
+        if (info.Utf8Path.Length > 0)
+        {
+            span[pos++] = (byte)'|';
+            info.Utf8Path.CopyTo(span[pos..]);
+            pos += info.Utf8Path.Length;
+        }
+
+        // Tag (if present): #TagName
+        if (info.Tag is not null)
+        {
+            span[pos++] = (byte)' ';
+            span[pos++] = (byte)'#';
+            var tagByteCount = Encoding.UTF8.GetBytes(info.Tag, span[pos..]);
+            pos += tagByteCount;
+        }
 
         span[pos++] = (byte)']';
         span[pos++] = (byte)' ';
@@ -64,7 +80,7 @@ public sealed class DefaultLogFormatter : ILogFormatter
         output.Advance(pos);
     }
 
-    public void FormatSuffix(in LogEntry entry, IBufferWriter<byte> output)
+    public void FormatSuffix(in DispatchInfo info, IBufferWriter<byte> output)
     {
         // Newline
         var span = output.GetSpan(1);
@@ -72,9 +88,9 @@ public sealed class DefaultLogFormatter : ILogFormatter
         output.Advance(1);
 
         // Exception on next line if present
-        if (entry.Exception is not null)
+        if (info.Exception is not null)
         {
-            WriteExceptionUtf8(entry.Exception, output);
+            WriteExceptionUtf8(info.Exception, output);
         }
     }
 

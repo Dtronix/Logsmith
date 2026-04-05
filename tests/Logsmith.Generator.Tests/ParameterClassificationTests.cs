@@ -43,7 +43,7 @@ public class ParameterClassificationTests
         var result = GeneratorTestHelper.RunGenerator(compilation);
 
         var generated = GetGeneratedSource(result, "TestNs.Log");
-        Assert.That(generated, Does.Contain("exception: ex"));
+        Assert.That(generated, Does.Contain("Exception = ex"));
     }
 
     [Test]
@@ -64,7 +64,7 @@ public class ParameterClassificationTests
         var result = GeneratorTestHelper.RunGenerator(compilation);
 
         var generated = GetGeneratedSource(result, "TestNs.Log");
-        Assert.That(generated, Does.Contain("callerFile: file"));
+        Assert.That(generated, Does.Contain("CallerFile = file"));
     }
 
     [Test]
@@ -85,7 +85,7 @@ public class ParameterClassificationTests
         var result = GeneratorTestHelper.RunGenerator(compilation);
 
         var generated = GetGeneratedSource(result, "TestNs.Log");
-        Assert.That(generated, Does.Contain("callerLine: line"));
+        Assert.That(generated, Does.Contain("CallerLine = line"));
     }
 
     [Test]
@@ -106,7 +106,7 @@ public class ParameterClassificationTests
         var result = GeneratorTestHelper.RunGenerator(compilation);
 
         var generated = GetGeneratedSource(result, "TestNs.Log");
-        Assert.That(generated, Does.Contain("callerMember: member"));
+        Assert.That(generated, Does.Contain("CallerMember = member"));
     }
 
     [Test]
@@ -154,10 +154,10 @@ public class ParameterClassificationTests
 
         var generated = GetGeneratedSource(result, "TestNs.Log");
         Assert.That(generated, Does.Contain("WriteString(msg)"));
-        Assert.That(generated, Does.Contain("exception: ex"));
-        Assert.That(generated, Does.Contain("callerFile: file"));
-        Assert.That(generated, Does.Contain("callerLine: line"));
-        Assert.That(generated, Does.Contain("callerMember: member"));
+        Assert.That(generated, Does.Contain("Exception = ex"));
+        Assert.That(generated, Does.Contain("CallerFile = file"));
+        Assert.That(generated, Does.Contain("CallerLine = line"));
+        Assert.That(generated, Does.Contain("CallerMember = member"));
     }
 
     private static string GetGeneratedSource(GeneratorRunResult result, string hintPrefix)

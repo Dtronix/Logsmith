@@ -52,39 +52,6 @@ internal static class MethodEmitter
             }
         }
 
-        // Emit state structs for methods with structured dispatch.
-        // Structured dispatch is needed when:
-        //   - The method uses LogManager (no explicit sink), OR
-        //   - The method is in abstraction mode with an explicit ILogsmithLogger param
-        //     (abstraction always checks for IStructuredLogsmithLogger at runtime)
-        // It is NOT needed for explicit ILogSink params (text-only dispatch).
-        foreach (var method in methods)
-        {
-            if (NeedsStructuredDispatch(method))
-            {
-                var stateStruct = EmitStateStruct(method);
-                if (!string.IsNullOrEmpty(stateStruct))
-                {
-                    innerSb.AppendLine();
-                    innerSb.Append(stateStruct);
-                }
-            }
-        }
-
-        // Emit WriteProperties methods for structured dispatch
-        foreach (var method in methods)
-        {
-            if (NeedsStructuredDispatch(method))
-            {
-                var writeProps = StructuredPathEmitter.EmitWritePropertiesMethod(method);
-                if (!string.IsNullOrEmpty(writeProps))
-                {
-                    innerSb.AppendLine();
-                    innerSb.Append(writeProps);
-                }
-            }
-        }
-
         // Calculate base indent for innermost class content
         // Outer classes add indent; the innermost class body content gets (chainLength - 1) * 4 extra spaces
         int extraIndent = (typeChain.Count - 1) * 4;
@@ -189,10 +156,6 @@ internal static class MethodEmitter
 
         sb.AppendLine();
 
-        // LogEntry construction
-        sb.Append(EmitLogEntryConstruction(method, "Logsmith"));
-        sb.AppendLine();
-
         // Text path
         int bufferSize = EstimateBufferSize(method);
         sb.AppendLine($"        global::System.Span<byte> __buffer = stackalloc byte[{bufferSize}];");
@@ -201,22 +164,19 @@ internal static class MethodEmitter
         sb.AppendLine("        var __utf8Message = writer.GetWritten();");
         sb.AppendLine();
 
+        // DispatchInfo construction
+        sb.Append(EmitDispatchInfoConstruction(method, "Logsmith"));
+        sb.AppendLine();
+
         // Dispatch
         if (method.HasExplicitSink)
         {
             var sinkParam = method.Parameters.First(p => p.Kind == ParameterKind.Sink);
-            sb.AppendLine($"        {sinkParam.Name}.Write(in __entry, __utf8Message);");
+            sb.AppendLine($"        {sinkParam.Name}.Write(in __info);");
         }
         else
         {
-            // Create state and dispatch
-            string stateTypeName = $"{method.MethodName}State";
-            var messageParams = method.Parameters.Where(p => p.Kind == ParameterKind.MessageParam).ToList();
-
-            sb.Append($"        var __state = new {stateTypeName}(");
-            sb.Append(string.Join(", ", messageParams.Select(p => $"{p.RefKind}{p.Name}")));
-            sb.AppendLine(");");
-            sb.AppendLine($"        global::Logsmith.LogManager.Dispatch(in __entry, __utf8Message, __state, WriteProperties_{method.MethodName});");
+            sb.AppendLine("        global::Logsmith.LogManager.Dispatch(in __info);");
         }
 
         // Return any ArrayPool buffer rented during overflow
@@ -282,10 +242,6 @@ internal static class MethodEmitter
 
         sb.AppendLine();
 
-        // LogEntry construction (uses abstraction namespace)
-        sb.Append(EmitLogEntryConstruction(method, absNs));
-        sb.AppendLine();
-
         // Text path
         int bufferSize = EstimateBufferSize(method);
         sb.AppendLine($"        global::System.Span<byte> __buffer = stackalloc byte[{bufferSize}];");
@@ -294,17 +250,12 @@ internal static class MethodEmitter
         sb.AppendLine("        var __utf8Message = writer.GetWritten();");
         sb.AppendLine();
 
-        // Dispatch — check for structured interface
-        string stateTypeName = $"{method.MethodName}State";
-        var messageParams = method.Parameters.Where(p => p.Kind == ParameterKind.MessageParam).ToList();
+        // DispatchInfo construction
+        sb.Append(EmitDispatchInfoConstruction(method, absNs));
+        sb.AppendLine();
 
-        sb.Append($"        var __state = new {stateTypeName}(");
-        sb.Append(string.Join(", ", messageParams.Select(p => $"{p.RefKind}{p.Name}")));
-        sb.AppendLine(");");
-        sb.AppendLine($"        if (__logger is global::{absNs}.IStructuredLogsmithLogger __structured)");
-        sb.AppendLine($"            __structured.WriteStructured(in __entry, __utf8Message, __state, WriteProperties_{method.MethodName});");
-        sb.AppendLine("        else");
-        sb.AppendLine("            __logger.Write(in __entry, __utf8Message);");
+        // Dispatch
+        sb.AppendLine("        __logger.Write(in __info);");
 
         // Return any ArrayPool buffer rented during overflow
         sb.AppendLine("        writer.Dispose();");
@@ -312,7 +263,7 @@ internal static class MethodEmitter
         return sb.ToString();
     }
 
-    internal static string EmitLogEntryConstruction(LogMethodInfo method, string ns)
+    internal static string EmitDispatchInfoConstruction(LogMethodInfo method, string ns)
     {
         var sb = new StringBuilder();
         string levelName = method.Level >= 0 && method.Level < LogLevelNames.Length
@@ -344,59 +295,21 @@ internal static class MethodEmitter
             }
         }
 
-        sb.AppendLine($"        var __entry = new global::{ns}.LogEntry(");
-        sb.AppendLine($"            level: global::{ns}.LogLevel.{levelName},");
-        sb.AppendLine($"            eventId: {method.EventId},");
-        sb.AppendLine("            timestampTicks: global::System.DateTime.UtcNow.Ticks,");
-        sb.AppendLine($"            category: \"{EscapeString(method.Category)}\",");
-        sb.AppendLine($"            exception: {exceptionExpr},");
-        sb.AppendLine($"            callerFile: {callerFileExpr},");
-        sb.AppendLine($"            callerLine: {callerLineExpr},");
-        sb.AppendLine($"            callerMember: {callerMemberExpr},");
-        sb.AppendLine("            threadId: global::System.Environment.CurrentManagedThreadId,");
-        sb.AppendLine("            threadName: global::System.Threading.Thread.CurrentThread.Name);");
+        sb.AppendLine($"        var __info = new global::{ns}.DispatchInfo");
+        sb.AppendLine("        {");
+        sb.AppendLine($"            Level = global::{ns}.LogLevel.{levelName},");
+        sb.AppendLine($"            EventId = {method.EventId},");
+        sb.AppendLine("            TimestampTicks = global::System.DateTime.UtcNow.Ticks,");
+        sb.AppendLine($"            Category = \"{EscapeString(method.Category)}\",");
+        sb.AppendLine("            Utf8Message = __utf8Message,");
+        sb.AppendLine($"            Exception = {exceptionExpr},");
+        sb.AppendLine($"            CallerFile = {callerFileExpr},");
+        sb.AppendLine($"            CallerLine = {callerLineExpr},");
+        sb.AppendLine($"            CallerMember = {callerMemberExpr},");
+        sb.AppendLine("            ThreadId = global::System.Environment.CurrentManagedThreadId,");
+        sb.AppendLine("            ThreadName = global::System.Threading.Thread.CurrentThread.Name,");
+        sb.AppendLine("        };");
 
-        return sb.ToString();
-    }
-
-    internal static string EmitStateStruct(LogMethodInfo method)
-    {
-        var messageParams = method.Parameters.Where(p => p.Kind == ParameterKind.MessageParam).ToList();
-
-        var sb = new StringBuilder();
-        string stateTypeName = $"{method.MethodName}State";
-
-        sb.AppendLine($"    private readonly ref struct {stateTypeName}");
-        sb.AppendLine("    {");
-
-        if (messageParams.Count > 0)
-        {
-            // Fields
-            foreach (var param in messageParams)
-            {
-                string fieldType = FormatType(param);
-                sb.AppendLine($"        internal readonly {fieldType} {param.Name};");
-            }
-
-            sb.AppendLine();
-
-            // Constructor
-            sb.Append($"        internal {stateTypeName}(");
-            sb.Append(string.Join(", ", messageParams.Select(p =>
-            {
-                string paramType = FormatType(p);
-                return $"{p.RefKind}{paramType} {p.Name}";
-            })));
-            sb.AppendLine(")");
-            sb.AppendLine("        {");
-            foreach (var param in messageParams)
-            {
-                sb.AppendLine($"            this.{param.Name} = {param.Name};");
-            }
-            sb.AppendLine("        }");
-        }
-
-        sb.AppendLine("    }");
         return sb.ToString();
     }
 
@@ -511,15 +424,6 @@ internal static class MethodEmitter
     private static bool HasAbstractionLogger(LogMethodInfo method)
     {
         return method.Parameters.Any(p => p.Kind == ParameterKind.AbstractionLogger);
-    }
-
-    private static bool NeedsStructuredDispatch(LogMethodInfo method)
-    {
-        // Structured dispatch (state struct + WriteProperties) is needed when:
-        //   - No explicit sink (dispatches via LogManager which forwards to structured sinks), OR
-        //   - Abstraction mode with explicit ILogsmithLogger (always checks for IStructuredLogsmithLogger)
-        return !method.HasExplicitSink ||
-            (method.Mode == GeneratorMode.Abstraction && HasAbstractionLogger(method));
     }
 
     private static string EscapeString(string text)

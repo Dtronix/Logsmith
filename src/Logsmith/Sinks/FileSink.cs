@@ -42,15 +42,15 @@ public class FileSink : BufferedLogSink
         if (_fileStream is null)
             EnsureFileOpen();
 
-        var logEntry = entry.Entry;
-        var utf8Message = entry.Utf8MessageBuffer.AsMemory(0, entry.Utf8MessageLength);
+        var info = entry.ToDispatchInfo();
+        var utf8Message = entry.Buffer.AsMemory(0, entry.MessageLength);
 
         var buf = ThreadBuffer.Get();
-        _formatter.FormatPrefix(in logEntry, buf);
+        _formatter.FormatPrefix(in info, buf);
         var prefixBytes = buf.WrittenMemory.ToArray();
 
         buf.ResetWrittenCount();
-        _formatter.FormatSuffix(in logEntry, buf);
+        _formatter.FormatSuffix(in info, buf);
         var suffixBytes = buf.WrittenMemory.ToArray();
 
         var totalBytes = prefixBytes.Length + utf8Message.Length + suffixBytes.Length;
@@ -83,7 +83,7 @@ public class FileSink : BufferedLogSink
             // Time-based roll check
             if (_rollingInterval != RollingInterval.None)
             {
-                var entryTime = new DateTime(entry.Entry.TimestampTicks, DateTimeKind.Utc);
+                var entryTime = new DateTime(entry.TimestampTicks, DateTimeKind.Utc);
                 var entryPeriod = GetPeriodStart(entryTime, _rollingInterval);
                 if (entryPeriod > _currentPeriodStart)
                 {
@@ -118,7 +118,7 @@ public class FileSink : BufferedLogSink
         // Time-based roll check
         if (_rollingInterval != RollingInterval.None)
         {
-            var entryTime = new DateTime(entry.Entry.TimestampTicks, DateTimeKind.Utc);
+            var entryTime = new DateTime(entry.TimestampTicks, DateTimeKind.Utc);
             var entryPeriod = GetPeriodStart(entryTime, _rollingInterval);
             if (entryPeriod > _currentPeriodStart)
             {

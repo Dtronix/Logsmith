@@ -22,13 +22,12 @@ public class StreamSink : BufferedLogSink
 
     protected override async Task WriteBufferedAsync(BufferedEntry entry, CancellationToken ct)
     {
-        var logEntry = entry.Entry;
-        var utf8Message = entry.Utf8MessageBuffer.AsSpan(0, entry.Utf8MessageLength);
+        var info = entry.ToDispatchInfo();
 
         var buf = ThreadBuffer.Get();
-        _formatter.FormatPrefix(in logEntry, buf);
-        buf.Write(utf8Message);
-        _formatter.FormatSuffix(in logEntry, buf);
+        _formatter.FormatPrefix(in info, buf);
+        buf.Write(info.Utf8Message);
+        _formatter.FormatSuffix(in info, buf);
 
         var formatted = buf.WrittenMemory.ToArray();
 

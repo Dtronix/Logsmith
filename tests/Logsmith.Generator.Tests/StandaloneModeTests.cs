@@ -119,7 +119,7 @@ public class StandaloneModeTests
 
         Assert.That(hintNames, Has.Some.Contain("LogLevel"));
         Assert.That(hintNames, Has.Some.Contain("LogManager"));
-        Assert.That(hintNames, Has.Some.Contain("LogEntry"));
+        Assert.That(hintNames, Has.Some.Contain("DispatchInfo"));
         Assert.That(hintNames, Has.Some.Contain("Utf8LogWriter"));
         Assert.That(hintNames, Has.Some.Contain("ILogSink"));
     }

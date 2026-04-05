@@ -12,10 +12,10 @@ public class DefaultLogFormatterTests
     public void FormatPrefix_TimeOnly_MatchesConsoleFormat()
     {
         var formatter = new DefaultLogFormatter(includeDate: false);
-        var entry = MakeEntry(LogLevel.Information);
+        var info = MakeInfo(LogLevel.Information);
         var buffer = new ArrayBufferWriter<byte>(256);
 
-        formatter.FormatPrefix(in entry, buffer);
+        formatter.FormatPrefix(in info, buffer);
         var result = Encoding.UTF8.GetString(buffer.WrittenSpan);
 
         // Matches [HH:mm:ss.fff INF Test]
@@ -26,10 +26,10 @@ public class DefaultLogFormatterTests
     public void FormatPrefix_WithDate_MatchesFileFormat()
     {
         var formatter = new DefaultLogFormatter(includeDate: true);
-        var entry = MakeEntry(LogLevel.Information);
+        var info = MakeInfo(LogLevel.Information);
         var buffer = new ArrayBufferWriter<byte>(256);
 
-        formatter.FormatPrefix(in entry, buffer);
+        formatter.FormatPrefix(in info, buffer);
         var result = Encoding.UTF8.GetString(buffer.WrittenSpan);
 
         // Matches [yyyy-MM-dd HH:mm:ss.fff INF Test]
@@ -40,10 +40,10 @@ public class DefaultLogFormatterTests
     public void FormatSuffix_WritesNewline()
     {
         var formatter = new DefaultLogFormatter();
-        var entry = MakeEntry(LogLevel.Information);
+        var info = MakeInfo(LogLevel.Information);
         var buffer = new ArrayBufferWriter<byte>(64);
 
-        formatter.FormatSuffix(in entry, buffer);
+        formatter.FormatSuffix(in info, buffer);
         var result = Encoding.UTF8.GetString(buffer.WrittenSpan);
 
         Assert.That(result, Is.EqualTo("\n"));
@@ -54,11 +54,17 @@ public class DefaultLogFormatterTests
     {
         var formatter = new DefaultLogFormatter();
         var ex = new InvalidOperationException("test error");
-        var entry = new LogEntry(
-            LogLevel.Error, 1, DateTime.UtcNow.Ticks, "Test", exception: ex);
+        var info = new DispatchInfo
+        {
+            Level = LogLevel.Error,
+            EventId = 1,
+            TimestampTicks = DateTime.UtcNow.Ticks,
+            Category = "Test",
+            Exception = ex,
+        };
         var buffer = new ArrayBufferWriter<byte>(4096);
 
-        formatter.FormatSuffix(in entry, buffer);
+        formatter.FormatSuffix(in info, buffer);
         var result = Encoding.UTF8.GetString(buffer.WrittenSpan);
 
         Assert.That(result, Does.StartWith("\n"));
@@ -75,15 +81,20 @@ public class DefaultLogFormatterTests
     public void FormatPrefix_AllLevels_CorrectTags(LogLevel level, string expectedTag)
     {
         var formatter = new DefaultLogFormatter();
-        var entry = MakeEntry(level);
+        var info = MakeInfo(level);
         var buffer = new ArrayBufferWriter<byte>(256);
 
-        formatter.FormatPrefix(in entry, buffer);
+        formatter.FormatPrefix(in info, buffer);
         var result = Encoding.UTF8.GetString(buffer.WrittenSpan);
 
         Assert.That(result, Does.Contain(expectedTag));
     }
 
-    private static LogEntry MakeEntry(LogLevel level) => new(
-        level, 1, DateTime.UtcNow.Ticks, "Test");
+    private static DispatchInfo MakeInfo(LogLevel level) => new()
+    {
+        Level = level,
+        EventId = 1,
+        TimestampTicks = DateTime.UtcNow.Ticks,
+        Category = "Test",
+    };
 }

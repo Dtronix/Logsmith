@@ -11,10 +11,10 @@ public sealed class DevNullSink : ILogSink
 {
     public bool IsEnabled(LogLevel level) => true;
 
-    public void Write(in LogEntry entry, ReadOnlySpan<byte> utf8Message)
+    public void Write(in DispatchInfo info)
     {
         // Force the runtime to observe the span so the write path isn't elided.
-        _ = utf8Message.Length;
+        _ = info.Utf8Message.Length;
     }
 
     public void Dispose() { }

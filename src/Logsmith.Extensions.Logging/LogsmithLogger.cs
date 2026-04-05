@@ -15,18 +15,9 @@ internal sealed class LogsmithLogger : ILogger
 
     public IDisposable? BeginScope<TState>(TState state) where TState : notnull
     {
-        if (state is IEnumerable<KeyValuePair<string, object>> kvps)
-        {
-            LogScope? first = null;
-            foreach (var kvp in kvps)
-            {
-                var scope = LogScope.Push(kvp.Key, kvp.Value?.ToString() ?? "");
-                first ??= scope;
-            }
-            return first;
-        }
-
-        return LogScope.Push("Scope", state.ToString() ?? "");
+        // LogScope (AsyncLocal) has been removed. Scoping is now explicit via ILogger.Scoped().
+        // MEL ambient scoping is not supported — return a no-op disposable.
+        return NullScope.Instance;
     }
 
     public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel)
@@ -47,28 +38,34 @@ internal sealed class LogsmithLogger : ILogger
 
         var message = formatter(state, exception);
 
-        var entry = new LogEntry(
-            level: level,
-            eventId: eventId.Id,
-            timestampTicks: DateTime.UtcNow.Ticks,
-            category: _category,
-            exception: exception,
-            threadId: Environment.CurrentManagedThreadId,
-            threadName: Thread.CurrentThread.Name);
-
         // Encode message to UTF-8 via stackalloc
         Span<byte> buffer = stackalloc byte[Math.Min(message.Length * 3, 4096)];
         var status = Utf8.FromUtf16(message, buffer, out _, out int bytesWritten);
         var utf8Message = buffer[..bytesWritten];
 
-        LogManager.Dispatch(in entry, utf8Message, message, static (writer, msg) =>
+        var info = new DispatchInfo
         {
-            writer.WriteString("message", msg);
-        });
+            Level = level,
+            EventId = eventId.Id,
+            TimestampTicks = DateTime.UtcNow.Ticks,
+            Category = _category,
+            Utf8Message = utf8Message,
+            Exception = exception,
+            ThreadId = Environment.CurrentManagedThreadId,
+            ThreadName = Thread.CurrentThread.Name,
+        };
+
+        LogManager.Dispatch(in info);
     }
 
     private static Logsmith.LogLevel MapLevel(Microsoft.Extensions.Logging.LogLevel level)
     {
         return (Logsmith.LogLevel)(int)level;
+    }
+
+    private sealed class NullScope : IDisposable
+    {
+        internal static readonly NullScope Instance = new();
+        public void Dispose() { }
     }
 }

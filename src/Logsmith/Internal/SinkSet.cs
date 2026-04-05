@@ -2,37 +2,21 @@ namespace Logsmith.Internal;
 
 internal sealed class SinkSet
 {
-    internal readonly ILogSink[] TextSinks;
-    internal readonly IStructuredLogSink[] StructuredSinks;
-    internal readonly ILogSink[] AllSinks;
+    internal readonly ILogSink[] Sinks;
 
-    internal SinkSet(ILogSink[] textSinks, IStructuredLogSink[] structuredSinks, ILogSink[] allSinks)
+    internal SinkSet(ILogSink[] sinks)
     {
-        TextSinks = textSinks;
-        StructuredSinks = structuredSinks;
-        AllSinks = allSinks;
+        Sinks = sinks;
     }
 
-    internal static SinkSet Classify(List<ILogSink> sinks)
+    internal static SinkSet Create(List<ILogSink> sinks)
     {
-        var textSinks = new ILogSink[sinks.Count];
-        var structuredList = new List<IStructuredLogSink>();
-
-        for (int i = 0; i < sinks.Count; i++)
-        {
-            textSinks[i] = sinks[i];
-            if (sinks[i] is IStructuredLogSink structured)
-            {
-                structuredList.Add(structured);
-            }
-        }
-
-        return new SinkSet(textSinks, structuredList.ToArray(), sinks.ToArray());
+        return new SinkSet(sinks.ToArray());
     }
 
     internal async ValueTask DisposeSinksAsync()
     {
-        foreach (var sink in AllSinks)
+        foreach (var sink in Sinks)
         {
             try
             {

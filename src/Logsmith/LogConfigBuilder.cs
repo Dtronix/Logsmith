@@ -93,7 +93,7 @@ public sealed class LogConfigBuilder
 
     internal LogConfig Build()
     {
-        var sinkSet = SinkSet.Classify(_sinks);
+        var sinkSet = SinkSet.Create(_sinks);
         IDisposable[]? monitors = null;
         if (_monitorFactories.Count > 0)
         {

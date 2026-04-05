@@ -41,7 +41,7 @@ internal static class EmbeddedSourceEmitter
 
     /// <summary>
     /// Abstraction mode: emits all sources with namespace rewriting.
-    /// Public types (LogLevel, LogEntry, etc.) keep public visibility.
+    /// Public types (LogLevel, DispatchInfo, etc.) keep public visibility.
     /// Internal types (LogManager, sinks, etc.) become internal.
     /// All types share the same target namespace so cross-references work.
     /// </summary>
@@ -145,12 +145,8 @@ internal static class EmbeddedSourceEmitter
     private static readonly HashSet<string> AbstractionPublicTypeNames = new HashSet<string>
     {
         "LogLevel",
-        "LogEntry",
-        "LogScope",
-        "ScopeEnumerator",
-        "WriteProperties",
+        "DispatchInfo",
         "ILogSink",
-        "IStructuredLogSink",
         "ILogStructurable",
         // IFlushableLogSink extends ILogSink — must stay public for
         // BufferedLogSink's interface implementation consistency

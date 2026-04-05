@@ -19,12 +19,12 @@ public class DebugSink : ILogSink
 
     public bool IsEnabled(LogLevel level) => Debugger.IsAttached && level >= _minimumLevel;
 
-    public void Write(in LogEntry entry, ReadOnlySpan<byte> utf8Message)
+    public void Write(in DispatchInfo info)
     {
         var buffer = ThreadBuffer.Get();
-        _formatter.FormatPrefix(in entry, buffer);
-        buffer.Write(utf8Message);
-        _formatter.FormatSuffix(in entry, buffer);
+        _formatter.FormatPrefix(in info, buffer);
+        buffer.Write(info.Utf8Message);
+        _formatter.FormatSuffix(in info, buffer);
 
         var message = Encoding.UTF8.GetString(buffer.WrittenSpan);
         Debug.WriteLine(message);
