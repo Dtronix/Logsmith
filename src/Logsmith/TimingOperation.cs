@@ -1,5 +1,8 @@
+using System.Buffers;
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
+using Logsmith.Internal;
 
 namespace Logsmith;
 
@@ -33,8 +36,7 @@ public struct TimingOperation : ILogger, IDisposable
         _completed = true;
 
         var elapsed = Stopwatch.GetElapsedTime(_startTimestamp);
-        DispatchTiming(LogLevel.Information,
-            $"Operation '{_operationName}' completed in {elapsed.TotalMilliseconds:F1}ms", null);
+        DispatchTiming(LogLevel.Information, "completed", elapsed.TotalMilliseconds, null, null);
     }
 
     /// <summary>
@@ -46,8 +48,7 @@ public struct TimingOperation : ILogger, IDisposable
         _completed = true;
 
         var elapsed = Stopwatch.GetElapsedTime(_startTimestamp);
-        DispatchTiming(LogLevel.Error,
-            $"Operation '{_operationName}' failed after {elapsed.TotalMilliseconds:F1}ms", exception);
+        DispatchTiming(LogLevel.Error, "failed", elapsed.TotalMilliseconds, exception, null);
     }
 
     /// <summary>
@@ -56,8 +57,7 @@ public struct TimingOperation : ILogger, IDisposable
     public void TimeStep(string stepName)
     {
         var elapsed = Stopwatch.GetElapsedTime(_startTimestamp);
-        DispatchTiming(LogLevel.Debug,
-            $"Operation '{_operationName}' step '{stepName}' at {elapsed.TotalMilliseconds:F1}ms", null);
+        DispatchTiming(LogLevel.Debug, "step", elapsed.TotalMilliseconds, null, stepName);
     }
 
     /// <summary>
@@ -70,21 +70,48 @@ public struct TimingOperation : ILogger, IDisposable
         {
             _completed = true;
             var elapsed = Stopwatch.GetElapsedTime(_startTimestamp);
-            DispatchTiming(LogLevel.Warning,
-                $"Operation '{_operationName}' abandoned after {elapsed.TotalMilliseconds:F1}ms", null);
+            DispatchTiming(LogLevel.Warning, "abandoned", elapsed.TotalMilliseconds, null, null);
         }
 
         _context.PathSegment = null;
     }
 
-    private void DispatchTiming(LogLevel level, string message, Exception? exception)
+    private void DispatchTiming(LogLevel level, string outcome, double elapsedMs,
+        Exception? exception, string? stepName)
     {
         if (!_context.IsEnabled(level)) return;
-        var bytes = Encoding.UTF8.GetBytes(message);
+
+        // Text buffer — human-readable message
+        var textBuffer = ThreadBuffer.GetHandlerText();
+        string textMessage;
+        if (stepName is not null)
+            textMessage = $"Operation '{_operationName}' step '{stepName}' at {elapsedMs:F1}ms";
+        else if (outcome == "completed")
+            textMessage = $"Operation '{_operationName}' completed in {elapsedMs:F1}ms";
+        else if (outcome == "failed")
+            textMessage = $"Operation '{_operationName}' failed after {elapsedMs:F1}ms";
+        else
+            textMessage = $"Operation '{_operationName}' abandoned after {elapsedMs:F1}ms";
+
+        Encoding.UTF8.GetBytes(textMessage.AsSpan(), textBuffer);
+
+        // JSON buffer — structured properties
+        var jsonBuffer = ThreadBuffer.GetHandlerJson();
+        var jsonWriter = ThreadBuffer.GetJsonWriter(jsonBuffer);
+        jsonWriter.WriteStartObject();
+        jsonWriter.WriteString("operation", _operationName);
+        jsonWriter.WriteString("outcome", outcome);
+        jsonWriter.WriteNumber("elapsed_ms", Math.Round(elapsedMs, 1));
+        if (stepName is not null)
+            jsonWriter.WriteString("step", stepName);
+        jsonWriter.WriteEndObject();
+        jsonWriter.Flush();
+
         var info = new DispatchInfo
         {
             Level = level,
-            Utf8Message = bytes,
+            Utf8Message = textBuffer.WrittenSpan,
+            Utf8Json = jsonBuffer.WrittenSpan,
             Exception = exception,
         };
         _context.Dispatch(in info);

@@ -11,6 +11,7 @@ internal sealed class LogConfig
     internal readonly IDisposable[]? Monitors;
     internal readonly bool CaptureUnhandledExceptions;
     internal readonly bool ObserveTaskExceptions;
+    internal readonly bool ThrowOnDPanic;
 
     internal LogConfig(
         LogLevel minimumLevel,
@@ -19,7 +20,8 @@ internal sealed class LogConfig
         Action<Exception>? errorHandler = null,
         IDisposable[]? monitors = null,
         bool captureUnhandledExceptions = false,
-        bool observeTaskExceptions = false)
+        bool observeTaskExceptions = false,
+        bool throwOnDPanic = false)
     {
         MinimumLevel = minimumLevel;
         CategoryOverrides = categoryOverrides.ToFrozenDictionary();
@@ -28,6 +30,7 @@ internal sealed class LogConfig
         Monitors = monitors;
         CaptureUnhandledExceptions = captureUnhandledExceptions;
         ObserveTaskExceptions = observeTaskExceptions;
+        ThrowOnDPanic = throwOnDPanic;
     }
 
     internal void DisposeMonitors()
