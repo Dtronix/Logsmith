@@ -156,15 +156,16 @@ public class LogManagerShutdownTests
         if (!LogManager.IsEnabled(level, category))
             return;
 
-        var entry = new LogEntry(
-            level: level,
-            eventId: 1,
-            timestampTicks: DateTime.UtcNow.Ticks,
-            category: category);
+        var info = new DispatchInfo
+        {
+            Level = level,
+            EventId = 1,
+            TimestampTicks = DateTime.UtcNow.Ticks,
+            Category = category,
+            Utf8Message = Encoding.UTF8.GetBytes(message),
+        };
 
-        var utf8 = Encoding.UTF8.GetBytes(message).AsSpan();
-
-        LogManager.Dispatch(in entry, utf8, 0, static (writer, state) => { });
+        LogManager.Dispatch(in info);
     }
 
     private sealed class TrackingDisposableSink : ILogSink
@@ -173,7 +174,7 @@ public class LogManagerShutdownTests
 
         public bool IsEnabled(LogLevel level) => true;
 
-        public void Write(in LogEntry entry, ReadOnlySpan<byte> utf8Message) { }
+        public void Write(in DispatchInfo info) { }
 
         public void Dispose() => Disposed = true;
     }

@@ -68,7 +68,7 @@ public class LogsmithLoggerTests
     }
 
     [Test]
-    public void BeginScope_PushesLogScope()
+    public void BeginScope_ReturnsNonNullDisposable_AndDoesNotEnrich()
     {
         var sink = new RecordingSink();
         LogManager.Initialize(c =>
@@ -80,17 +80,20 @@ public class LogsmithLoggerTests
         var provider = new LogsmithLoggerProvider();
         var logger = provider.CreateLogger("Test");
 
-        using (logger.BeginScope(new Dictionary<string, object> { ["RequestId"] = "abc" }))
-        {
-            logger.LogInformation("scoped message");
-        }
+        var scope = logger.BeginScope(new Dictionary<string, object> { ["RequestId"] = "abc" });
+        Assert.That(scope, Is.Not.Null);
+
+        logger.LogInformation("scoped message");
+
+        scope!.Dispose();
 
         Assert.That(sink.Entries, Has.Count.EqualTo(1));
-        Assert.That(sink.Entries[0].Message, Does.Contain("[RequestId=abc]"));
+        Assert.That(sink.Entries[0].Message, Does.Not.Contain("[RequestId=abc]"));
+        Assert.That(sink.Entries[0].Message, Does.Contain("scoped message"));
     }
 
     [Test]
-    public void BeginScope_StringState_PushesAsScopeProperty()
+    public void BeginScope_StringState_ReturnsNonNullDisposable_AndDoesNotEnrich()
     {
         var sink = new RecordingSink();
         LogManager.Initialize(c =>
@@ -102,12 +105,16 @@ public class LogsmithLoggerTests
         var provider = new LogsmithLoggerProvider();
         var logger = provider.CreateLogger("Test");
 
-        using (logger.BeginScope("myScope"))
-        {
-            logger.LogInformation("msg");
-        }
+        var scope = logger.BeginScope("myScope");
+        Assert.That(scope, Is.Not.Null);
 
-        Assert.That(sink.Entries[0].Message, Does.Contain("[Scope=myScope]"));
+        logger.LogInformation("msg");
+
+        scope!.Dispose();
+
+        Assert.That(sink.Entries, Has.Count.EqualTo(1));
+        Assert.That(sink.Entries[0].Message, Does.Not.Contain("[Scope=myScope]"));
+        Assert.That(sink.Entries[0].Message, Does.Contain("msg"));
     }
 
     [Test]

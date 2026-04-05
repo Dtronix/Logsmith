@@ -12,10 +12,10 @@ public class BufferedLogSinkTests
     {
         using var ms = new MemoryStream();
         var sink = new StreamSink(ms, formatter: NullLogFormatter.Instance, leaveOpen: true);
-        var entry = MakeEntry();
-        var message = "The quick brown fox jumps over the lazy dog 🦊";
+        var message = "The quick brown fox jumps over the lazy dog \U0001F98A";
+        var info = MakeInfo(message);
 
-        sink.Write(in entry, Encoding.UTF8.GetBytes(message));
+        sink.Write(in info);
         await sink.DisposeAsync();
 
         var content = Encoding.UTF8.GetString(ms.ToArray());
@@ -27,10 +27,10 @@ public class BufferedLogSinkTests
     {
         using var ms = new MemoryStream();
         var sink = new StreamSink(ms, formatter: NullLogFormatter.Instance, leaveOpen: true);
-        var entry = MakeEntry();
         var message = new string('A', 4096);
+        var info = MakeInfo(message);
 
-        sink.Write(in entry, Encoding.UTF8.GetBytes(message));
+        sink.Write(in info);
         await sink.DisposeAsync();
 
         var content = Encoding.UTF8.GetString(ms.ToArray());
@@ -42,14 +42,14 @@ public class BufferedLogSinkTests
     {
         using var ms = new MemoryStream();
         var sink = new StreamSink(ms, formatter: NullLogFormatter.Instance, leaveOpen: true);
-        var entry = MakeEntry();
         var messages = new List<string>();
 
         for (int i = 0; i < 100; i++)
         {
             var msg = $"message-{i:D4}";
             messages.Add(msg);
-            sink.Write(in entry, Encoding.UTF8.GetBytes(msg));
+            var info = MakeInfo(msg);
+            sink.Write(in info);
         }
 
         await sink.DisposeAsync();
@@ -67,12 +67,21 @@ public class BufferedLogSinkTests
         var sink = new StreamSink(ms, formatter: new DefaultLogFormatter(includeDate: true), leaveOpen: true);
 
         var ticks = new DateTime(2025, 6, 15, 10, 30, 45, DateTimeKind.Utc).Ticks;
-        var entry = new LogEntry(
-            LogLevel.Warning, 42, ticks, "MyCategory",
-            callerFile: "test.cs", callerLine: 99, callerMember: "TestMethod",
-            threadId: 7, threadName: "worker");
+        var info = new DispatchInfo
+        {
+            Level = LogLevel.Warning,
+            EventId = 42,
+            TimestampTicks = ticks,
+            Category = "MyCategory",
+            Utf8Message = "hello"u8,
+            CallerFile = "test.cs",
+            CallerLine = 99,
+            CallerMember = "TestMethod",
+            ThreadId = 7,
+            ThreadName = "worker",
+        };
 
-        sink.Write(in entry, "hello"u8);
+        sink.Write(in info);
         await sink.DisposeAsync();
 
         var content = Encoding.UTF8.GetString(ms.ToArray());
@@ -88,16 +97,16 @@ public class BufferedLogSinkTests
         // Create a sink with capacity=1 and a slow consumer to force back-pressure
         using var ms = new MemoryStream();
         var sink = new SlowStreamSink(ms, capacity: 1);
-        var entry = MakeEntry();
 
         // Rapidly write more messages than the channel can hold
         // Some TryWrite calls will fail — should not throw
-        Assert.DoesNotThrow(() =>
+        for (int i = 0; i < 50; i++)
         {
-            for (int i = 0; i < 50; i++)
-                sink.Write(in entry, "pressure"u8);
-        });
+            var info = MakeInfo("pressure");
+            sink.Write(in info);
+        }
 
+        Assert.Pass();
         sink.Dispose();
     }
 
@@ -106,11 +115,13 @@ public class BufferedLogSinkTests
     {
         using var ms = new MemoryStream();
         var sink = new SlowStreamSink(ms, capacity: 1);
-        var entry = MakeEntry();
 
         // Fill the channel and force drops
         for (int i = 0; i < 50; i++)
-            sink.Write(in entry, "drop-test"u8);
+        {
+            var info = MakeInfo("drop-test");
+            sink.Write(in info);
+        }
 
         Assert.That(sink.DroppedCount, Is.GreaterThan(0));
         sink.Dispose();
@@ -122,10 +133,12 @@ public class BufferedLogSinkTests
         var exceptions = new List<Exception>();
         using var ms = new MemoryStream();
         var sink = new SlowStreamSink(ms, capacity: 1, errorHandler: ex => exceptions.Add(ex));
-        var entry = MakeEntry();
 
         for (int i = 0; i < 50; i++)
-            sink.Write(in entry, "handler-test"u8);
+        {
+            var info = MakeInfo("handler-test");
+            sink.Write(in info);
+        }
 
         Assert.That(exceptions, Is.Not.Empty);
         Assert.That(exceptions[0], Is.TypeOf<LogDroppedException>());
@@ -139,11 +152,13 @@ public class BufferedLogSinkTests
         var callCount = 0;
         using var ms = new MemoryStream();
         var sink = new SlowStreamSink(ms, capacity: 1, errorHandler: _ => Interlocked.Increment(ref callCount));
-        var entry = MakeEntry();
 
         // Rapid-fire drops all happen within the same tick window
         for (int i = 0; i < 200; i++)
-            sink.Write(in entry, "throttle"u8);
+        {
+            var info = MakeInfo("throttle");
+            sink.Write(in info);
+        }
 
         // Throttle should limit notifications — far fewer callbacks than drops
         Assert.That(callCount, Is.LessThan(sink.DroppedCount));
@@ -155,14 +170,16 @@ public class BufferedLogSinkTests
     {
         using var ms = new MemoryStream();
         var sink = new SlowStreamSink(ms, capacity: 1);
-        var entry = MakeEntry();
         var barrier = new Barrier(4);
 
         var tasks = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
         {
             barrier.SignalAndWait();
             for (int i = 0; i < 100; i++)
-                sink.Write(in entry, "concurrent"u8);
+            {
+                var info = MakeInfo("concurrent");
+                sink.Write(in info);
+            }
         })).ToArray();
 
         Task.WaitAll(tasks);
@@ -179,9 +196,9 @@ public class BufferedLogSinkTests
         var errorCalled = false;
         var sink = new StreamSink(ms, formatter: NullLogFormatter.Instance, leaveOpen: true,
             capacity: 1024, errorHandler: _ => errorCalled = true);
-        var entry = MakeEntry();
+        var info = MakeInfo("no-drop");
 
-        sink.Write(in entry, "no-drop"u8);
+        sink.Write(in info);
         await sink.DisposeAsync();
 
         Assert.That(sink.DroppedCount, Is.EqualTo(0));
@@ -196,8 +213,14 @@ public class BufferedLogSinkTests
         Assert.That(ex.Message, Does.Contain("42"));
     }
 
-    private static LogEntry MakeEntry() => new(
-        LogLevel.Information, 1, DateTime.UtcNow.Ticks, "Test");
+    private static DispatchInfo MakeInfo(string message) => new()
+    {
+        Level = LogLevel.Information,
+        EventId = 1,
+        TimestampTicks = DateTime.UtcNow.Ticks,
+        Category = "Test",
+        Utf8Message = Encoding.UTF8.GetBytes(message),
+    };
 
     /// <summary>
     /// A buffered sink with intentional delay to create back-pressure.
@@ -216,7 +239,7 @@ public class BufferedLogSinkTests
         protected override async Task WriteBufferedAsync(BufferedEntry entry, CancellationToken ct)
         {
             await Task.Delay(50, ct);
-            await _stream.WriteAsync(entry.Utf8MessageBuffer.AsMemory(0, entry.Utf8MessageLength), ct);
+            await _stream.WriteAsync(entry.Buffer.AsMemory(0, entry.MessageLength), ct);
         }
     }
 }

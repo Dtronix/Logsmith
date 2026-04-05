@@ -69,7 +69,7 @@ public class CodeEmissionTests
     }
 
     [Test]
-    public void DefaultDispatch_CallsLogManager()
+    public void DefaultDispatch_UsesLoggerContext()
     {
         var source = """
             using Logsmith;
@@ -85,8 +85,9 @@ public class CodeEmissionTests
         var result = GeneratorTestHelper.RunGenerator(compilation);
 
         var generated = GetGeneratedSource(result, "TestNs.Log");
-        Assert.That(generated, Does.Contain("LogManager.IsEnabled"));
-        Assert.That(generated, Does.Contain("LogManager.Dispatch"));
+        Assert.That(generated, Does.Contain("__loggerContext"));
+        Assert.That(generated, Does.Contain("__ctx.IsEnabled"));
+        Assert.That(generated, Does.Contain("__ctx.Dispatch"));
     }
 
     [Test]
@@ -110,9 +111,9 @@ public class CodeEmissionTests
         var result = GeneratorTestHelper.RunGenerator(compilation);
 
         var generated = GetGeneratedSource(result, "TestNs.Log");
-        Assert.That(generated, Does.Contain("callerFile: file"));
-        Assert.That(generated, Does.Contain("callerLine: line"));
-        Assert.That(generated, Does.Contain("callerMember: member"));
+        Assert.That(generated, Does.Contain("CallerFile = file"));
+        Assert.That(generated, Does.Contain("CallerLine = line"));
+        Assert.That(generated, Does.Contain("CallerMember = member"));
     }
 
     [Test]
@@ -135,7 +136,7 @@ public class CodeEmissionTests
         var gen1 = GetGeneratedSource(result1, "TestNs.Log");
         var gen2 = GetGeneratedSource(result2, "TestNs.Log");
         Assert.That(gen1, Is.EqualTo(gen2));
-        Assert.That(gen1, Does.Contain("eventId:"));
+        Assert.That(gen1, Does.Contain("EventId ="));
     }
 
     [Test]
@@ -155,7 +156,7 @@ public class CodeEmissionTests
         var result = GeneratorTestHelper.RunGenerator(compilation);
 
         var generated = GetGeneratedSource(result, "TestNs.Log");
-        Assert.That(generated, Does.Contain("eventId: 42"));
+        Assert.That(generated, Does.Contain("EventId = 42"));
     }
 
     [Test]
@@ -239,7 +240,7 @@ public class CodeEmissionTests
     }
 
     [Test]
-    public void JsonSpecifier_StructuredPath_EmitsSerialize()
+    public void JsonSpecifier_EmitsDispatchInfoWithJsonBytes()
     {
         var source = """
             using Logsmith;
@@ -255,11 +256,12 @@ public class CodeEmissionTests
         var result = GeneratorTestHelper.RunGenerator(compilation);
 
         var generated = GetGeneratedSource(result, "TestNs.Log");
-        Assert.That(generated, Does.Contain("JsonSerializer.Serialize(writer"));
+        Assert.That(generated, Does.Contain("DispatchInfo"));
+        Assert.That(generated, Does.Contain("SerializeToUtf8Bytes"));
     }
 
     [Test]
-    public void ThreadInfo_EmittedInLogEntry()
+    public void ContextDispatch_OmitsThreadInfoAndTimestamp()
     {
         var source = """
             using Logsmith;
@@ -275,8 +277,10 @@ public class CodeEmissionTests
         var result = GeneratorTestHelper.RunGenerator(compilation);
 
         var generated = GetGeneratedSource(result, "TestNs.Log");
-        Assert.That(generated, Does.Contain("threadId: global::System.Environment.CurrentManagedThreadId"));
-        Assert.That(generated, Does.Contain("threadName: global::System.Threading.Thread.CurrentThread.Name"));
+        // When dispatching through LoggerContext, thread info and timestamp are filled by the context
+        Assert.That(generated, Does.Not.Contain("ThreadId = global::System.Environment.CurrentManagedThreadId"));
+        Assert.That(generated, Does.Not.Contain("TimestampTicks"));
+        Assert.That(generated, Does.Contain("__ctx.Dispatch"));
     }
 
     [Test]
@@ -321,7 +325,7 @@ public class CodeEmissionTests
     }
 
     [Test]
-    public void IsEnabled_PassesCategoryToLogManager()
+    public void IsEnabled_UsesLoggerContextWithCategory()
     {
         var source = """
             using Logsmith;
@@ -338,7 +342,9 @@ public class CodeEmissionTests
         var result = GeneratorTestHelper.RunGenerator(compilation);
 
         var generated = GetGeneratedSource(result, "TestNs.Log");
-        Assert.That(generated, Does.Contain("LogManager.IsEnabled(global::Logsmith.LogLevel.Information, \"HTTP\")"));
+        // LoggerContext is initialized with the category; IsEnabled checks through context
+        Assert.That(generated, Does.Contain("GetLogger(\"HTTP\")"));
+        Assert.That(generated, Does.Contain("__ctx.IsEnabled(global::Logsmith.LogLevel.Information)"));
     }
 
     [Test]

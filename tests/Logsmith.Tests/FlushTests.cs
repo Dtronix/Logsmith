@@ -19,8 +19,8 @@ public class FlushTests
         using var ms = new MemoryStream();
         var sink = new StreamSink(ms, formatter: NullLogFormatter.Instance, leaveOpen: true);
 
-        var entry = MakeEntry();
-        sink.Write(in entry, "before-flush"u8);
+        var info = MakeInfo("before-flush");
+        sink.Write(in info);
 
         await sink.FlushAsync();
 
@@ -36,11 +36,12 @@ public class FlushTests
         using var ms = new MemoryStream();
         var sink = new StreamSink(ms, formatter: NullLogFormatter.Instance, leaveOpen: true);
 
-        var entry = MakeEntry();
-        sink.Write(in entry, "before"u8);
+        var info1 = MakeInfo("before");
+        sink.Write(in info1);
         await sink.FlushAsync();
 
-        sink.Write(in entry, "after"u8);
+        var info2 = MakeInfo("after");
+        sink.Write(in info2);
         await sink.DisposeAsync();
 
         var content = Encoding.UTF8.GetString(ms.ToArray());
@@ -53,8 +54,8 @@ public class FlushTests
     {
         var sink = new SlowBufferedSink(writeDelay: TimeSpan.FromSeconds(10));
 
-        var entry = MakeEntry();
-        sink.Write(in entry, "slow-entry"u8);
+        var info = MakeInfo("slow-entry");
+        sink.Write(in info);
 
         Assert.CatchAsync<OperationCanceledException>(async () =>
             await sink.FlushAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(100)).Token));
@@ -148,14 +149,16 @@ public class FlushTests
         using var ms = new MemoryStream();
         var sink = new StreamSink(ms, formatter: NullLogFormatter.Instance, leaveOpen: true);
 
-        var entry = MakeEntry();
-        sink.Write(in entry, "msg1"u8);
+        var info1 = MakeInfo("msg1");
+        sink.Write(in info1);
         await sink.FlushAsync();
 
-        sink.Write(in entry, "msg2"u8);
+        var info2 = MakeInfo("msg2");
+        sink.Write(in info2);
         await sink.FlushAsync();
 
-        sink.Write(in entry, "msg3"u8);
+        var info3 = MakeInfo("msg3");
+        sink.Write(in info3);
         await sink.FlushAsync();
 
         var content = Encoding.UTF8.GetString(ms.ToArray());
@@ -166,23 +169,30 @@ public class FlushTests
         await sink.DisposeAsync();
     }
 
-    private static LogEntry MakeEntry() => new(
-        LogLevel.Information, 1, DateTime.UtcNow.Ticks, "Test");
+    private static DispatchInfo MakeInfo(string message) => new()
+    {
+        Level = LogLevel.Information,
+        EventId = 1,
+        TimestampTicks = DateTime.UtcNow.Ticks,
+        Category = "Test",
+        Utf8Message = Encoding.UTF8.GetBytes(message),
+    };
 
     private static void DispatchTestMessage(LogLevel level, string message, string category = "Test")
     {
         if (!LogManager.IsEnabled(level, category))
             return;
 
-        var entry = new LogEntry(
-            level: level,
-            eventId: 1,
-            timestampTicks: DateTime.UtcNow.Ticks,
-            category: category);
+        var info = new DispatchInfo
+        {
+            Level = level,
+            EventId = 1,
+            TimestampTicks = DateTime.UtcNow.Ticks,
+            Category = category,
+            Utf8Message = Encoding.UTF8.GetBytes(message),
+        };
 
-        var utf8 = Encoding.UTF8.GetBytes(message).AsSpan();
-
-        LogManager.Dispatch(in entry, utf8, 0, static (writer, state) => { });
+        LogManager.Dispatch(in info);
     }
 
     private sealed class SlowBufferedSink : BufferedLogSink

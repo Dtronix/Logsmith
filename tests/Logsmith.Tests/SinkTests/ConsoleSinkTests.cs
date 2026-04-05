@@ -18,8 +18,8 @@ public class ConsoleSinkTests
         try
         {
             using var sink = new ConsoleSink(colored: false);
-            var entry = MakeEntry(LogLevel.Information);
-            sink.Write(in entry, "stdout test"u8);
+            var info = MakeInfo(LogLevel.Information);
+            sink.Write(in info);
 
             // ConsoleSink writes directly to OpenStandardOutput, not Console.Out,
             // so we check it doesn't throw. Redirect only captures Console.Out.
@@ -35,8 +35,9 @@ public class ConsoleSinkTests
     public void Write_DoesNotThrow()
     {
         using var sink = new ConsoleSink(colored: true);
-        var entry = MakeEntry(LogLevel.Error);
-        Assert.DoesNotThrow(() => sink.Write(in entry, "error msg"u8));
+        var info = MakeInfo(LogLevel.Error);
+        sink.Write(in info);
+        Assert.Pass();
     }
 
     [Test]
@@ -53,10 +54,17 @@ public class ConsoleSinkTests
     {
         // NullLogFormatter means no prefix — just verifying it doesn't throw
         using var sink = new ConsoleSink(colored: false, formatter: NullLogFormatter.Instance);
-        var entry = MakeEntry(LogLevel.Information);
-        Assert.DoesNotThrow(() => sink.Write(in entry, "custom formatter test"u8));
+        var info = MakeInfo(LogLevel.Information);
+        sink.Write(in info);
+        Assert.Pass();
     }
 
-    private static LogEntry MakeEntry(LogLevel level) => new(
-        level, 1, DateTime.UtcNow.Ticks, "Test");
+    private static DispatchInfo MakeInfo(LogLevel level) => new()
+    {
+        Level = level,
+        EventId = 1,
+        TimestampTicks = DateTime.UtcNow.Ticks,
+        Category = "Test",
+        Utf8Message = "test msg"u8,
+    };
 }

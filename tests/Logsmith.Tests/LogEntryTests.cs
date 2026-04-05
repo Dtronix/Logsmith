@@ -1,19 +1,21 @@
 namespace Logsmith.Tests;
 
 [TestFixture]
-public class LogEntryTests
+public class DispatchInfoTests
 {
     [Test]
     public void ThreadId_CapturedAtConstruction()
     {
-        var entry = new LogEntry(
-            level: LogLevel.Information,
-            eventId: 1,
-            timestampTicks: DateTime.UtcNow.Ticks,
-            category: "Test",
-            threadId: Environment.CurrentManagedThreadId);
+        var info = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = DateTime.UtcNow.Ticks,
+            Category = "Test",
+            ThreadId = Environment.CurrentManagedThreadId,
+        };
 
-        Assert.That(entry.ThreadId, Is.EqualTo(Environment.CurrentManagedThreadId));
+        Assert.That(info.ThreadId, Is.EqualTo(Environment.CurrentManagedThreadId));
     }
 
     [Test]
@@ -25,14 +27,16 @@ public class LogEntryTests
             if (Thread.CurrentThread.Name == null)
                 Thread.CurrentThread.Name = "TestThread";
 
-            var entry = new LogEntry(
-                level: LogLevel.Information,
-                eventId: 1,
-                timestampTicks: DateTime.UtcNow.Ticks,
-                category: "Test",
-                threadName: Thread.CurrentThread.Name);
+            var info = new DispatchInfo
+            {
+                Level = LogLevel.Information,
+                EventId = 1,
+                TimestampTicks = DateTime.UtcNow.Ticks,
+                Category = "Test",
+                ThreadName = Thread.CurrentThread.Name,
+            };
 
-            Assert.That(entry.ThreadName, Is.EqualTo(Thread.CurrentThread.Name));
+            Assert.That(info.ThreadName, Is.EqualTo(Thread.CurrentThread.Name));
         }
         finally
         {
@@ -43,26 +47,30 @@ public class LogEntryTests
     [Test]
     public void ThreadName_NullWhenUnset()
     {
-        var entry = new LogEntry(
-            level: LogLevel.Information,
-            eventId: 1,
-            timestampTicks: DateTime.UtcNow.Ticks,
-            category: "Test",
-            threadId: 42,
-            threadName: null);
+        var info = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = DateTime.UtcNow.Ticks,
+            Category = "Test",
+            ThreadId = 42,
+            ThreadName = null,
+        };
 
-        Assert.That(entry.ThreadName, Is.Null);
+        Assert.That(info.ThreadName, Is.Null);
     }
 
     [Test]
     public void ThreadId_DefaultsToZero()
     {
-        var entry = new LogEntry(
-            level: LogLevel.Information,
-            eventId: 1,
-            timestampTicks: DateTime.UtcNow.Ticks,
-            category: "Test");
+        var info = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = DateTime.UtcNow.Ticks,
+            Category = "Test",
+        };
 
-        Assert.That(entry.ThreadId, Is.EqualTo(0));
+        Assert.That(info.ThreadId, Is.EqualTo(0));
     }
 }

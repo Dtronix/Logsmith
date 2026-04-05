@@ -38,7 +38,8 @@ public class ScopedContextBenchmark : BenchmarkBase
             .CreateLogger();
 
         // Push one scope property per library.
-        _logsmithScope = LogScope.Push("RequestId", "bench-001");
+        // LogScope (AsyncLocal) removed — Logsmith now uses explicit scoping.
+        // _logsmithScope is left null; Logsmith benchmark runs without ambient scope.
         _melScope = MelLogger.BeginScope(new KeyValuePair<string, object>("RequestId", "bench-001"));
         _serilogScope = LogContext.PushProperty("RequestId", "bench-001");
         _nlogScope = global::NLog.ScopeContext.PushProperty("RequestId", "bench-001");

@@ -13,7 +13,7 @@ public interface ILogsmithLogger
     bool IsEnabled(LogLevel level, string category);
 
     /// <summary>
-    /// Writes a log entry with a pre-formatted UTF-8 message.
+    /// Writes a log dispatch with pre-formatted UTF-8 text and structured JSON.
     /// </summary>
-    void Write(in LogEntry entry, System.ReadOnlySpan<byte> utf8Message);
+    void Write(in DispatchInfo info);
 }

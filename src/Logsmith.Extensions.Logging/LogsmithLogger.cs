@@ -1,10 +1,9 @@
 using System.Text;
-using System.Text.Unicode;
 using Microsoft.Extensions.Logging;
 
 namespace Logsmith.Extensions.Logging;
 
-internal sealed class LogsmithLogger : ILogger
+internal sealed class LogsmithLogger : Microsoft.Extensions.Logging.ILogger
 {
     private readonly string _category;
 
@@ -15,18 +14,9 @@ internal sealed class LogsmithLogger : ILogger
 
     public IDisposable? BeginScope<TState>(TState state) where TState : notnull
     {
-        if (state is IEnumerable<KeyValuePair<string, object>> kvps)
-        {
-            LogScope? first = null;
-            foreach (var kvp in kvps)
-            {
-                var scope = LogScope.Push(kvp.Key, kvp.Value?.ToString() ?? "");
-                first ??= scope;
-            }
-            return first;
-        }
-
-        return LogScope.Push("Scope", state.ToString() ?? "");
+        // LogScope (AsyncLocal) has been removed. Scoping is now explicit via ILogger.Scoped().
+        // MEL ambient scoping is not supported — return a no-op disposable.
+        return NullScope.Instance;
     }
 
     public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel)
@@ -47,28 +37,41 @@ internal sealed class LogsmithLogger : ILogger
 
         var message = formatter(state, exception);
 
-        var entry = new LogEntry(
-            level: level,
-            eventId: eventId.Id,
-            timestampTicks: DateTime.UtcNow.Ticks,
-            category: _category,
-            exception: exception,
-            threadId: Environment.CurrentManagedThreadId,
-            threadName: Thread.CurrentThread.Name);
-
-        // Encode message to UTF-8 via stackalloc
-        Span<byte> buffer = stackalloc byte[Math.Min(message.Length * 3, 4096)];
-        var status = Utf8.FromUtf16(message, buffer, out _, out int bytesWritten);
+        // Encode message to UTF-8 — stackalloc for typical messages, heap fallback for large ones
+        int maxBytes = Encoding.UTF8.GetByteCount(message);
+        byte[]? rented = null;
+        Span<byte> buffer = maxBytes <= 4096
+            ? stackalloc byte[maxBytes]
+            : (rented = System.Buffers.ArrayPool<byte>.Shared.Rent(maxBytes));
+        int bytesWritten = Encoding.UTF8.GetBytes(message, buffer);
         var utf8Message = buffer[..bytesWritten];
 
-        LogManager.Dispatch(in entry, utf8Message, message, static (writer, msg) =>
+        var info = new DispatchInfo
         {
-            writer.WriteString("message", msg);
-        });
+            Level = level,
+            EventId = eventId.Id,
+            TimestampTicks = DateTime.UtcNow.Ticks,
+            Category = _category,
+            Utf8Message = utf8Message,
+            Exception = exception,
+            ThreadId = Environment.CurrentManagedThreadId,
+            ThreadName = Thread.CurrentThread.Name,
+        };
+
+        LogManager.Dispatch(in info);
+
+        if (rented is not null)
+            System.Buffers.ArrayPool<byte>.Shared.Return(rented);
     }
 
     private static Logsmith.LogLevel MapLevel(Microsoft.Extensions.Logging.LogLevel level)
     {
         return (Logsmith.LogLevel)(int)level;
+    }
+
+    private sealed class NullScope : IDisposable
+    {
+        internal static readonly NullScope Instance = new();
+        public void Dispose() { }
     }
 }

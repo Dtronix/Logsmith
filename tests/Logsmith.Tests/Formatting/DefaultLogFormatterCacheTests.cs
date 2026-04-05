@@ -11,13 +11,19 @@ public class DefaultLogFormatterCacheTests
     public void FormatPrefix_UnicodeCategory_EncodesCorrectly()
     {
         var formatter = new DefaultLogFormatter(includeDate: false);
-        var entry = new LogEntry(LogLevel.Information, 1, DateTime.UtcNow.Ticks, "日本語カテゴリ");
+        var info = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = DateTime.UtcNow.Ticks,
+            Category = "\u65E5\u672C\u8A9E\u30AB\u30C6\u30B4\u30EA",
+        };
         var buffer = new ArrayBufferWriter<byte>(512);
 
-        formatter.FormatPrefix(in entry, buffer);
+        formatter.FormatPrefix(in info, buffer);
         var result = Encoding.UTF8.GetString(buffer.WrittenSpan);
 
-        Assert.That(result, Does.Contain("日本語カテゴリ"));
+        Assert.That(result, Does.Contain("\u65E5\u672C\u8A9E\u30AB\u30C6\u30B4\u30EA"));
     }
 
     [Test]
@@ -26,13 +32,25 @@ public class DefaultLogFormatterCacheTests
         var formatter = new DefaultLogFormatter(includeDate: false);
         var ticks = DateTime.UtcNow.Ticks;
 
-        var entry1 = new LogEntry(LogLevel.Information, 1, ticks, "Repeated");
+        var info1 = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = ticks,
+            Category = "Repeated",
+        };
         var buf1 = new ArrayBufferWriter<byte>(256);
-        formatter.FormatPrefix(in entry1, buf1);
+        formatter.FormatPrefix(in info1, buf1);
 
-        var entry2 = new LogEntry(LogLevel.Information, 1, ticks, "Repeated");
+        var info2 = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = ticks,
+            Category = "Repeated",
+        };
         var buf2 = new ArrayBufferWriter<byte>(256);
-        formatter.FormatPrefix(in entry2, buf2);
+        formatter.FormatPrefix(in info2, buf2);
 
         Assert.That(buf1.WrittenSpan.SequenceEqual(buf2.WrittenSpan), Is.True);
     }
@@ -45,9 +63,15 @@ public class DefaultLogFormatterCacheTests
 
         foreach (var cat in categories)
         {
-            var entry = new LogEntry(LogLevel.Information, 1, DateTime.UtcNow.Ticks, cat);
+            var info = new DispatchInfo
+            {
+                Level = LogLevel.Information,
+                EventId = 1,
+                TimestampTicks = DateTime.UtcNow.Ticks,
+                Category = cat,
+            };
             var buf = new ArrayBufferWriter<byte>(256);
-            formatter.FormatPrefix(in entry, buf);
+            formatter.FormatPrefix(in info, buf);
             var result = Encoding.UTF8.GetString(buf.WrittenSpan);
 
             Assert.That(result, Does.Contain(cat), $"Category '{cat}' not found in prefix");
@@ -82,10 +106,17 @@ public class DefaultLogFormatterCacheTests
             nested = ex;
         }
 
-        var entry = new LogEntry(LogLevel.Error, 1, DateTime.UtcNow.Ticks, "Test", exception: nested);
+        var info = new DispatchInfo
+        {
+            Level = LogLevel.Error,
+            EventId = 1,
+            TimestampTicks = DateTime.UtcNow.Ticks,
+            Category = "Test",
+            Exception = nested,
+        };
         var buffer = new ArrayBufferWriter<byte>(16384);
 
-        formatter.FormatSuffix(in entry, buffer);
+        formatter.FormatSuffix(in info, buffer);
         var result = Encoding.UTF8.GetString(buffer.WrittenSpan);
 
         Assert.That(result, Does.Contain("outer"));
@@ -100,14 +131,21 @@ public class DefaultLogFormatterCacheTests
     public void FormatSuffix_ExceptionWithUnicode_EncodesCorrectly()
     {
         var formatter = new DefaultLogFormatter();
-        var ex = new InvalidOperationException("エラーが発生しました: 🔥");
-        var entry = new LogEntry(LogLevel.Error, 1, DateTime.UtcNow.Ticks, "Test", exception: ex);
+        var ex = new InvalidOperationException("\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F: \U0001F525");
+        var info = new DispatchInfo
+        {
+            Level = LogLevel.Error,
+            EventId = 1,
+            TimestampTicks = DateTime.UtcNow.Ticks,
+            Category = "Test",
+            Exception = ex,
+        };
         var buffer = new ArrayBufferWriter<byte>(4096);
 
-        formatter.FormatSuffix(in entry, buffer);
+        formatter.FormatSuffix(in info, buffer);
         var result = Encoding.UTF8.GetString(buffer.WrittenSpan);
 
-        Assert.That(result, Does.Contain("エラーが発生しました"));
-        Assert.That(result, Does.Contain("🔥"));
+        Assert.That(result, Does.Contain("\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F"));
+        Assert.That(result, Does.Contain("\U0001F525"));
     }
 }
