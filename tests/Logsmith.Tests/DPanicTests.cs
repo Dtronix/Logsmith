@@ -175,4 +175,24 @@ public class DPanicTests
 
         Assert.That(sink.Entries, Has.Count.EqualTo(0));
     }
+
+    [Test]
+    public void DPanic_ThrowsEvenWhenLevelDisabled()
+    {
+        var sink = new RecordingSink();
+        LogManager.Initialize(c =>
+        {
+            c.MinimumLevel = LogLevel.Critical;
+            c.AddSink(sink);
+            c.ThrowOnDPanic = true;
+        });
+
+        var logger = LogManager.GetLogger("Test");
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            logger.DPanic("correctness guard"));
+
+        Assert.That(ex!.Message, Is.EqualTo("correctness guard"));
+        Assert.That(sink.Entries, Has.Count.EqualTo(0),
+            "Log dispatch is filtered by level, but throw still fires");
+    }
 }

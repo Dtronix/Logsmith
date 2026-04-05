@@ -45,6 +45,9 @@ public interface ILogger
     /// Logs at Error level, then throws <see cref="InvalidOperationException"/> if
     /// <see cref="LogConfigBuilder.ThrowOnDPanic"/> is enabled. Use for conditions
     /// that should never occur — fail-fast in dev/test, log-and-continue in production.
+    /// The throw is independent of <see cref="IsEnabled"/>: even if Error level is
+    /// filtered out, DPanic still throws when enabled, because it is a correctness
+    /// guard, not a log-level concern.
     /// </summary>
     void DPanic(string message)
     {
