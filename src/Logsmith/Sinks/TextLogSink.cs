@@ -11,12 +11,12 @@ public abstract class TextLogSink : ILogSink
 
     public virtual bool IsEnabled(LogLevel level) => level >= MinimumLevel;
 
-    public void Write(in LogEntry entry, ReadOnlySpan<byte> utf8Message)
+    public void Write(in DispatchInfo info)
     {
-        WriteMessage(in entry, utf8Message);
+        WriteMessage(in info);
     }
 
-    protected abstract void WriteMessage(in LogEntry entry, ReadOnlySpan<byte> utf8Message);
+    protected abstract void WriteMessage(in DispatchInfo info);
 
     public virtual void Dispose() { }
 }

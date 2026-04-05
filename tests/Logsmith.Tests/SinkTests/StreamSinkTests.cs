@@ -12,9 +12,16 @@ public class StreamSinkTests
     {
         using var ms = new MemoryStream();
         var sink = new StreamSink(ms, leaveOpen: true);
-        var entry = MakeEntry();
+        var info = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = DateTime.UtcNow.Ticks,
+            Category = "Test",
+            Utf8Message = "stream test"u8,
+        };
 
-        sink.Write(in entry, "stream test"u8);
+        sink.Write(in info);
         await sink.DisposeAsync();
 
         var content = Encoding.UTF8.GetString(ms.ToArray());
@@ -26,9 +33,9 @@ public class StreamSinkTests
     {
         using var ms = new MemoryStream();
         var sink = new StreamSink(ms, formatter: new DefaultLogFormatter(includeDate: true), leaveOpen: true);
-        var entry = MakeEntry();
+        var info = MakeInfo("formatted");
 
-        sink.Write(in entry, "formatted"u8);
+        sink.Write(in info);
         await sink.DisposeAsync();
 
         var content = Encoding.UTF8.GetString(ms.ToArray());
@@ -41,9 +48,9 @@ public class StreamSinkTests
     {
         using var ms = new MemoryStream();
         var sink = new StreamSink(ms, formatter: NullLogFormatter.Instance, leaveOpen: true);
-        var entry = MakeEntry();
+        var info = MakeInfo("raw only");
 
-        sink.Write(in entry, "raw only"u8);
+        sink.Write(in info);
         await sink.DisposeAsync();
 
         var content = Encoding.UTF8.GetString(ms.ToArray());
@@ -55,9 +62,9 @@ public class StreamSinkTests
     {
         var ms = new MemoryStream();
         var sink = new StreamSink(ms, formatter: NullLogFormatter.Instance, leaveOpen: true);
-        var entry = MakeEntry();
+        var info = MakeInfo("test");
 
-        sink.Write(in entry, "test"u8);
+        sink.Write(in info);
         await sink.DisposeAsync();
 
         // Stream should still be writable
@@ -70,9 +77,9 @@ public class StreamSinkTests
     {
         var ms = new MemoryStream();
         var sink = new StreamSink(ms, formatter: NullLogFormatter.Instance, leaveOpen: false);
-        var entry = MakeEntry();
+        var info = MakeInfo("test");
 
-        sink.Write(in entry, "test"u8);
+        sink.Write(in info);
         await sink.DisposeAsync();
 
         Assert.Throws<ObjectDisposedException>(() => ms.WriteByte(0));
@@ -96,11 +103,13 @@ public class StreamSinkTests
     {
         using var ms = new MemoryStream();
         var sink = new StreamSink(ms, formatter: NullLogFormatter.Instance, leaveOpen: true);
-        var entry = MakeEntry();
 
-        sink.Write(in entry, "one"u8);
-        sink.Write(in entry, "two"u8);
-        sink.Write(in entry, "three"u8);
+        var info1 = MakeInfo("one");
+        sink.Write(in info1);
+        var info2 = MakeInfo("two");
+        sink.Write(in info2);
+        var info3 = MakeInfo("three");
+        sink.Write(in info3);
         await sink.DisposeAsync();
 
         var content = Encoding.UTF8.GetString(ms.ToArray());
@@ -109,6 +118,12 @@ public class StreamSinkTests
         Assert.That(content, Does.Contain("three"));
     }
 
-    private static LogEntry MakeEntry() => new(
-        LogLevel.Information, 1, DateTime.UtcNow.Ticks, "Test");
+    private static DispatchInfo MakeInfo(string message) => new()
+    {
+        Level = LogLevel.Information,
+        EventId = 1,
+        TimestampTicks = DateTime.UtcNow.Ticks,
+        Category = "Test",
+        Utf8Message = Encoding.UTF8.GetBytes(message),
+    };
 }

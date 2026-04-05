@@ -58,8 +58,8 @@ public class AbstractionModeTests
             "Should emit ILogsmithLogger source");
         Assert.That(hintNames, Has.Some.Contain("LogsmithOutput"),
             "Should emit LogsmithOutput source");
-        Assert.That(hintNames, Has.Some.Contain("IStructuredLogsmithLogger"),
-            "Should emit IStructuredLogsmithLogger source");
+        Assert.That(hintNames, Has.Some.Contain("DispatchInfo"),
+            "Should emit DispatchInfo source");
     }
 
     [Test]
@@ -140,7 +140,7 @@ public class AbstractionModeTests
     }
 
     [Test]
-    public void AbstractionMode_ChecksForStructuredLogger()
+    public void AbstractionMode_DispatchesViaWrite()
     {
         var source = """
             using Logsmith;
@@ -160,10 +160,10 @@ public class AbstractionModeTests
         Assert.That(methodSource.SourceText, Is.Not.Null);
         var text = methodSource.SourceText!.ToString();
 
-        Assert.That(text, Does.Contain("IStructuredLogsmithLogger"),
-            "Should check for structured logger interface");
-        Assert.That(text, Does.Contain("WriteStructured"),
-            "Should call WriteStructured when structured logger is available");
+        Assert.That(text, Does.Contain("DispatchInfo"),
+            "Should create DispatchInfo for dispatch");
+        Assert.That(text, Does.Contain("__logger.Write(in __info)"),
+            "Should call Write(in DispatchInfo) on the logger");
     }
 
     [Test]
@@ -243,7 +243,7 @@ public class AbstractionModeTests
     }
 
     [Test]
-    public void AbstractionMode_LogEntryIsPublic()
+    public void AbstractionMode_DispatchInfoIsPublic()
     {
         var source = """
             using Logsmith;
@@ -257,18 +257,18 @@ public class AbstractionModeTests
 
         var (result, _) = RunAbstractionMode(source);
 
-        var logEntrySource = result.GeneratedSources
-            .FirstOrDefault(s => s.HintName.Contains("LogEntry"));
+        var dispatchInfoSource = result.GeneratedSources
+            .FirstOrDefault(s => s.HintName.Contains("DispatchInfo"));
 
-        Assert.That(logEntrySource.SourceText, Is.Not.Null);
-        var text = logEntrySource.SourceText!.ToString();
+        Assert.That(dispatchInfoSource.SourceText, Is.Not.Null);
+        var text = dispatchInfoSource.SourceText!.ToString();
 
-        Assert.That(text, Does.Contain("public readonly struct LogEntry"),
-            "LogEntry should remain public in abstraction mode");
+        Assert.That(text, Does.Contain("public ref struct DispatchInfo"),
+            "DispatchInfo should remain public in abstraction mode");
     }
 
     [Test]
-    public void AbstractionMode_LogScopeIsPublic()
+    public void AbstractionMode_ILogsmithLoggerIsPublic()
     {
         var source = """
             using Logsmith;
@@ -282,14 +282,14 @@ public class AbstractionModeTests
 
         var (result, _) = RunAbstractionMode(source);
 
-        var logScopeSource = result.GeneratedSources
-            .FirstOrDefault(s => s.HintName.Contains("LogScope"));
+        var loggerSource = result.GeneratedSources
+            .FirstOrDefault(s => s.HintName.Contains("ILogsmithLogger"));
 
-        Assert.That(logScopeSource.SourceText, Is.Not.Null);
-        var text = logScopeSource.SourceText!.ToString();
+        Assert.That(loggerSource.SourceText, Is.Not.Null);
+        var text = loggerSource.SourceText!.ToString();
 
-        Assert.That(text, Does.Contain("public sealed class LogScope"),
-            "LogScope should remain public in abstraction mode");
+        Assert.That(text, Does.Contain("public interface ILogsmithLogger"),
+            "ILogsmithLogger should remain public in abstraction mode");
     }
 
     [Test]

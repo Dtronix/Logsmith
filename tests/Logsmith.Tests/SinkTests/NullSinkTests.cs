@@ -17,8 +17,9 @@ public class NullSinkTests
     public void Write_DoesNotThrow()
     {
         using var sink = new NullSink();
-        var entry = MakeEntry();
-        Assert.DoesNotThrow(() => sink.Write(in entry, "test"u8));
+        var info = MakeInfo();
+        sink.Write(in info);
+        Assert.Pass();
     }
 
     [Test]
@@ -28,6 +29,11 @@ public class NullSinkTests
         Assert.DoesNotThrow(() => sink.Dispose());
     }
 
-    private static LogEntry MakeEntry() => new(
-        LogLevel.Information, 1, DateTime.UtcNow.Ticks, "Test");
+    private static DispatchInfo MakeInfo() => new()
+    {
+        Level = LogLevel.Information,
+        EventId = 1,
+        TimestampTicks = DateTime.UtcNow.Ticks,
+        Category = "Test",
+    };
 }

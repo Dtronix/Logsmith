@@ -9,8 +9,9 @@ public class DebugSinkTests
     public void Write_DoesNotThrow()
     {
         using var sink = new DebugSink();
-        var entry = MakeEntry();
-        Assert.DoesNotThrow(() => sink.Write(in entry, "debug msg"u8));
+        var info = MakeInfo();
+        sink.Write(in info);
+        Assert.Pass();
     }
 
     [Test]
@@ -32,6 +33,12 @@ public class DebugSinkTests
         Assert.DoesNotThrow(() => sink.Dispose());
     }
 
-    private static LogEntry MakeEntry() => new(
-        LogLevel.Information, 1, DateTime.UtcNow.Ticks, "Test");
+    private static DispatchInfo MakeInfo() => new()
+    {
+        Level = LogLevel.Information,
+        EventId = 1,
+        TimestampTicks = DateTime.UtcNow.Ticks,
+        Category = "Test",
+        Utf8Message = "debug msg"u8,
+    };
 }

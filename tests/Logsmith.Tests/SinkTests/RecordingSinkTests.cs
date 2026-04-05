@@ -9,8 +9,8 @@ public class RecordingSinkTests
     public void Write_CapturesEntry()
     {
         using var sink = new RecordingSink();
-        var entry = MakeEntry();
-        sink.Write(in entry, "hello"u8);
+        var info = MakeInfo("hello");
+        sink.Write(in info);
 
         Assert.That(sink.Entries, Has.Count.EqualTo(1));
     }
@@ -19,8 +19,8 @@ public class RecordingSinkTests
     public void Write_CapturesUtf8MessageAsString()
     {
         using var sink = new RecordingSink();
-        var entry = MakeEntry();
-        sink.Write(in entry, "hello world"u8);
+        var info = MakeInfo("hello world");
+        sink.Write(in info);
 
         Assert.That(sink.Entries[0].Message, Is.EqualTo("hello world"));
     }
@@ -29,10 +29,12 @@ public class RecordingSinkTests
     public void Write_MultipleEntries_AllCaptured()
     {
         using var sink = new RecordingSink();
-        var entry = MakeEntry();
-        sink.Write(in entry, "one"u8);
-        sink.Write(in entry, "two"u8);
-        sink.Write(in entry, "three"u8);
+        var info1 = MakeInfo("one");
+        sink.Write(in info1);
+        var info2 = MakeInfo("two");
+        sink.Write(in info2);
+        var info3 = MakeInfo("three");
+        sink.Write(in info3);
 
         Assert.That(sink.Entries, Has.Count.EqualTo(3));
     }
@@ -41,9 +43,10 @@ public class RecordingSinkTests
     public void Clear_RemovesAllEntries()
     {
         using var sink = new RecordingSink();
-        var entry = MakeEntry();
-        sink.Write(in entry, "one"u8);
-        sink.Write(in entry, "two"u8);
+        var info1 = MakeInfo("one");
+        sink.Write(in info1);
+        var info2 = MakeInfo("two");
+        sink.Write(in info2);
 
         sink.Clear();
 
@@ -70,17 +73,20 @@ public class RecordingSinkTests
     {
         using var sink = new RecordingSink();
         var ex = new InvalidOperationException("test");
-        var entry = new LogEntry(
-            level: LogLevel.Error,
-            eventId: 42,
-            timestampTicks: 12345L,
-            category: "MyCategory",
-            exception: ex,
-            callerFile: "File.cs",
-            callerLine: 99,
-            callerMember: "MyMethod");
+        var info = new DispatchInfo
+        {
+            Level = LogLevel.Error,
+            EventId = 42,
+            TimestampTicks = 12345L,
+            Category = "MyCategory",
+            Utf8Message = "msg"u8,
+            Exception = ex,
+            CallerFile = "File.cs",
+            CallerLine = 99,
+            CallerMember = "MyMethod",
+        };
 
-        sink.Write(in entry, "msg"u8);
+        sink.Write(in info);
 
         var captured = sink.Entries[0];
         Assert.That(captured.Level, Is.EqualTo(LogLevel.Error));
@@ -98,21 +104,30 @@ public class RecordingSinkTests
     public void CapturedEntry_IncludesThreadInfo()
     {
         using var sink = new RecordingSink();
-        var entry = new LogEntry(
-            level: LogLevel.Information,
-            eventId: 1,
-            timestampTicks: DateTime.UtcNow.Ticks,
-            category: "Test",
-            threadId: 42,
-            threadName: "WorkerThread");
+        var info = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = DateTime.UtcNow.Ticks,
+            Category = "Test",
+            Utf8Message = "msg"u8,
+            ThreadId = 42,
+            ThreadName = "WorkerThread",
+        };
 
-        sink.Write(in entry, "msg"u8);
+        sink.Write(in info);
 
         var captured = sink.Entries[0];
         Assert.That(captured.ThreadId, Is.EqualTo(42));
         Assert.That(captured.ThreadName, Is.EqualTo("WorkerThread"));
     }
 
-    private static LogEntry MakeEntry() => new(
-        LogLevel.Information, 1, DateTime.UtcNow.Ticks, "Test");
+    private static DispatchInfo MakeInfo(string message) => new()
+    {
+        Level = LogLevel.Information,
+        EventId = 1,
+        TimestampTicks = DateTime.UtcNow.Ticks,
+        Category = "Test",
+        Utf8Message = System.Text.Encoding.UTF8.GetBytes(message),
+    };
 }

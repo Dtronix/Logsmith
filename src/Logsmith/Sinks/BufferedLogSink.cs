@@ -6,15 +6,49 @@ namespace Logsmith.Sinks;
 public abstract class BufferedLogSink : ILogSink, IFlushableLogSink, IAsyncDisposable
 {
     protected readonly record struct BufferedEntry(
-        LogEntry Entry,
-        byte[] Utf8MessageBuffer,
-        int Utf8MessageLength,
+        LogLevel Level,
+        int EventId,
+        long TimestampTicks,
+        string Category,
+        Exception? Exception,
+        string? Tag,
+        string? CallerFile,
+        int CallerLine,
+        string? CallerMember,
+        int ThreadId,
+        string? ThreadName,
+        byte[] Buffer,
+        int MessageLength,
+        int JsonLength,
+        int PathLength,
         TaskCompletionSource? FlushCompletion = null)
     {
         internal bool IsFlushSentinel => FlushCompletion is not null;
 
         internal static BufferedEntry CreateFlushSentinel(TaskCompletionSource tcs)
-            => new(default, Array.Empty<byte>(), 0, tcs);
+            => new(default, default, default, "", null, null, null, default, null, default, null,
+                   Array.Empty<byte>(), 0, 0, 0, tcs);
+
+        internal DispatchInfo ToDispatchInfo()
+        {
+            return new DispatchInfo
+            {
+                Level = Level,
+                EventId = EventId,
+                TimestampTicks = TimestampTicks,
+                Category = Category,
+                Utf8Message = Buffer.AsSpan(0, MessageLength),
+                Utf8Json = Buffer.AsSpan(MessageLength, JsonLength),
+                Utf8Path = Buffer.AsSpan(MessageLength + JsonLength, PathLength),
+                Exception = Exception,
+                Tag = Tag,
+                CallerFile = CallerFile,
+                CallerLine = CallerLine,
+                CallerMember = CallerMember,
+                ThreadId = ThreadId,
+                ThreadName = ThreadName,
+            };
+        }
     };
 
     protected LogLevel MinimumLevel { get; }
@@ -50,11 +84,20 @@ public abstract class BufferedLogSink : ILogSink, IFlushableLogSink, IAsyncDispo
 
     public virtual bool IsEnabled(LogLevel level) => level >= MinimumLevel;
 
-    public void Write(in LogEntry entry, ReadOnlySpan<byte> utf8Message)
+    public void Write(in DispatchInfo info)
     {
-        var rented = ArrayPool<byte>.Shared.Rent(utf8Message.Length);
-        utf8Message.CopyTo(rented);
-        var buffered = new BufferedEntry(entry, rented, utf8Message.Length);
+        var totalLength = info.Utf8Message.Length + info.Utf8Json.Length + info.Utf8Path.Length;
+        var rented = ArrayPool<byte>.Shared.Rent(totalLength);
+
+        info.Utf8Message.CopyTo(rented);
+        info.Utf8Json.CopyTo(rented.AsSpan(info.Utf8Message.Length));
+        info.Utf8Path.CopyTo(rented.AsSpan(info.Utf8Message.Length + info.Utf8Json.Length));
+
+        var buffered = new BufferedEntry(
+            info.Level, info.EventId, info.TimestampTicks, info.Category,
+            info.Exception, info.Tag, info.CallerFile, info.CallerLine,
+            info.CallerMember, info.ThreadId, info.ThreadName,
+            rented, info.Utf8Message.Length, info.Utf8Json.Length, info.Utf8Path.Length);
 
         if (!_channel.Writer.TryWrite(buffered))
         {
@@ -105,7 +148,7 @@ public abstract class BufferedLogSink : ILogSink, IFlushableLogSink, IAsyncDispo
                 }
                 finally
                 {
-                    ArrayPool<byte>.Shared.Return(entry.Utf8MessageBuffer);
+                    ArrayPool<byte>.Shared.Return(entry.Buffer);
                 }
             }
         }

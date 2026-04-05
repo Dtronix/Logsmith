@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Logsmith.Internal;
 
 namespace Logsmith;
@@ -11,6 +12,7 @@ public static class LogManager
     private static int _shutdownCompleted;
 
     private static readonly TimeSpan ProcessExitTimeout = TimeSpan.FromSeconds(5);
+    private static readonly ConcurrentDictionary<string, LoggerInstance> _loggers = new();
 
     public static void Initialize(Action<LogConfigBuilder> configure)
     {
@@ -107,7 +109,7 @@ public static class LogManager
             var token = cts?.Token ?? CancellationToken.None;
             var tasks = new List<Task>();
 
-            foreach (var sink in config.Sinks.AllSinks)
+            foreach (var sink in config.Sinks.Sinks)
             {
                 if (sink is IFlushableLogSink flushable)
                     tasks.Add(flushable.FlushAsync(token).AsTask());
@@ -120,6 +122,30 @@ public static class LogManager
         {
             cts?.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Gets or creates a logger for the given category.
+    /// </summary>
+    public static ILogger GetLogger(string category)
+    {
+        return _loggers.GetOrAdd(category, cat => new LoggerInstance(new LoggerContext(cat)));
+    }
+
+    /// <summary>
+    /// Gets or creates a logger for the given type, using the type name as category.
+    /// </summary>
+    public static ILogger GetLogger<T>()
+    {
+        return GetLogger(typeof(T).Name);
+    }
+
+    /// <summary>
+    /// Gets the LoggerContext for generated code that needs direct context access.
+    /// </summary>
+    internal static LoggerContext GetLoggerContext(string category)
+    {
+        return ((LoggerInstance)GetLogger(category)).Context;
     }
 
     public static bool IsEnabled(LogLevel level)
@@ -140,68 +166,21 @@ public static class LogManager
         return level >= config.MinimumLevel;
     }
 
-    public static void Dispatch<TState>(
-        in LogEntry entry,
-        ReadOnlySpan<byte> utf8Message,
-        TState state,
-        WriteProperties<TState> propertyWriter)
-        where TState : allows ref struct
+    public static void Dispatch(in DispatchInfo info)
     {
         var config = _config;
         if (config is null) return;
 
-        var sinkSet = config.Sinks;
-
+        var sinks = config.Sinks.Sinks;
         var errorHandler = config.ErrorHandler;
 
-        // Build scoped message only when scopes are active
-        if (LogScope.Current is not null)
+        for (int i = 0; i < sinks.Length; i++)
         {
-            Span<byte> scopeBuffer = stackalloc byte[512];
-            var scopeWriter = new Utf8LogWriter(scopeBuffer);
-            scopeWriter.Write(utf8Message);
-            LogScope.WriteScopeToUtf8(ref scopeWriter);
-            DispatchToSinks(in entry, scopeWriter.GetWritten(), state, propertyWriter, sinkSet, errorHandler);
-        }
-        else
-        {
-            DispatchToSinks(in entry, utf8Message, state, propertyWriter, sinkSet, errorHandler);
-        }
-    }
-
-    private static void DispatchToSinks<TState>(
-        in LogEntry entry,
-        ReadOnlySpan<byte> utf8Message,
-        TState state,
-        WriteProperties<TState> propertyWriter,
-        Internal.SinkSet sinkSet,
-        Action<Exception>? errorHandler)
-        where TState : allows ref struct
-    {
-        var textSinks = sinkSet.TextSinks;
-        for (int i = 0; i < textSinks.Length; i++)
-        {
-            if (textSinks[i].IsEnabled(entry.Level))
+            if (sinks[i].IsEnabled(info.Level))
             {
                 try
                 {
-                    textSinks[i].Write(in entry, utf8Message);
-                }
-                catch (Exception ex)
-                {
-                    errorHandler?.Invoke(ex);
-                }
-            }
-        }
-
-        var structuredSinks = sinkSet.StructuredSinks;
-        for (int i = 0; i < structuredSinks.Length; i++)
-        {
-            if (structuredSinks[i].IsEnabled(entry.Level))
-            {
-                try
-                {
-                    structuredSinks[i].WriteStructured(in entry, state, propertyWriter);
+                    sinks[i].Write(in info);
                 }
                 catch (Exception ex)
                 {
@@ -299,6 +278,7 @@ public static class LogManager
     internal static void Reset()
     {
         StopCapturingExceptions();
+        _loggers.Clear();
         var old = _config;
         _config = null;
         Interlocked.Exchange(ref _initialized, 0);

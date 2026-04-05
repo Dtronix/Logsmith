@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using MelILogger = Microsoft.Extensions.Logging.ILogger;
 
 namespace Logsmith.Benchmarks.Sinks;
 
@@ -8,11 +9,11 @@ namespace Logsmith.Benchmarks.Sinks;
 /// </summary>
 public sealed class DevNullMelLoggerProvider : ILoggerProvider
 {
-    public ILogger CreateLogger(string categoryName) => new DevNullMelLogger();
+    MelILogger ILoggerProvider.CreateLogger(string categoryName) => new DevNullMelLogger();
 
     public void Dispose() { }
 
-    private sealed class DevNullMelLogger : ILogger
+    private sealed class DevNullMelLogger : MelILogger
     {
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 

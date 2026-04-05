@@ -1,3 +1,4 @@
+using System.Text;
 using Logsmith.Formatting;
 using Logsmith.Sinks;
 
@@ -27,9 +28,9 @@ public class FileSinkTests
     {
         var path = Path.Combine(_tempDir, "test.log");
         var sink = new FileSink(path);
-        var entry = MakeEntry();
+        var info = MakeInfo("file test");
 
-        sink.Write(in entry, "file test"u8);
+        sink.Write(in info);
         await sink.DisposeAsync();
 
         var content = await File.ReadAllTextAsync(path);
@@ -41,13 +42,14 @@ public class FileSinkTests
     {
         var path = Path.Combine(_tempDir, "roll.log");
         var sink = new FileSink(path, maxFileSizeBytes: 50);
-        var entry = MakeEntry();
+        var info = MakeInfo("This is a message that should trigger rolling");
 
         // Write enough to exceed 50 bytes and trigger a roll
-        sink.Write(in entry, "This is a message that should trigger rolling"u8);
+        sink.Write(in info);
         // Give the background drain time to process
         await Task.Delay(200);
-        sink.Write(in entry, "Second message after roll"u8);
+        var info2 = MakeInfo("Second message after roll");
+        sink.Write(in info2);
         await sink.DisposeAsync();
 
         var files = Directory.GetFiles(_tempDir, "roll*");
@@ -59,9 +61,9 @@ public class FileSinkTests
     {
         var path = Path.Combine(_tempDir, "flush.log");
         var sink = new FileSink(path);
-        var entry = MakeEntry();
+        var info = MakeInfo("flushed");
 
-        sink.Write(in entry, "flushed"u8);
+        sink.Write(in info);
         await sink.DisposeAsync();
 
         var content = await File.ReadAllTextAsync(path);
@@ -82,9 +84,9 @@ public class FileSinkTests
     {
         var path = Path.Combine(_tempDir, "custom.log");
         var sink = new FileSink(path, formatter: NullLogFormatter.Instance);
-        var entry = MakeEntry();
+        var info = MakeInfo("raw message");
 
-        sink.Write(in entry, "raw message"u8);
+        sink.Write(in info);
         await sink.DisposeAsync();
 
         var content = await File.ReadAllTextAsync(path);
@@ -108,11 +110,12 @@ public class FileSinkTests
         var path = Path.Combine(_tempDir, "shared_both.log");
         var sink1 = new FileSink(path, shared: true, formatter: NullLogFormatter.Instance);
         var sink2 = new FileSink(path, shared: true, formatter: NullLogFormatter.Instance);
-        var entry = MakeEntry();
 
-        sink1.Write(in entry, "from-sink1"u8);
+        var info1 = MakeInfo("from-sink1");
+        sink1.Write(in info1);
         await Task.Delay(100);
-        sink2.Write(in entry, "from-sink2"u8);
+        var info2 = MakeInfo("from-sink2");
+        sink2.Write(in info2);
         await Task.Delay(100);
         await sink1.DisposeAsync();
         await sink2.DisposeAsync();
@@ -128,11 +131,12 @@ public class FileSinkTests
         var path = Path.Combine(_tempDir, "mutex_both.log");
         var sink1 = new FileSink(path, shared: true, formatter: NullLogFormatter.Instance);
         var sink2 = new FileSink(path, shared: true, formatter: NullLogFormatter.Instance);
-        var entry = MakeEntry();
 
         // Named mutex serializes writes — both messages must survive
-        sink1.Write(in entry, "from-sink1"u8);
-        sink2.Write(in entry, "from-sink2"u8);
+        var info1 = MakeInfo("from-sink1");
+        sink1.Write(in info1);
+        var info2 = MakeInfo("from-sink2");
+        sink2.Write(in info2);
         await sink1.DisposeAsync();
         await sink2.DisposeAsync();
 
@@ -150,14 +154,28 @@ public class FileSinkTests
 
         // Entry at day N (today)
         var today = DateTime.UtcNow;
-        var entryToday = new LogEntry(LogLevel.Information, 1, today.Ticks, "Test");
-        sink.Write(in entryToday, "day1"u8);
+        var infoToday = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = today.Ticks,
+            Category = "Test",
+            Utf8Message = "day1"u8,
+        };
+        sink.Write(in infoToday);
         await Task.Delay(100);
 
         // Entry at day N+1
         var tomorrow = today.AddDays(1);
-        var entryTomorrow = new LogEntry(LogLevel.Information, 1, tomorrow.Ticks, "Test");
-        sink.Write(in entryTomorrow, "day2"u8);
+        var infoTomorrow = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = tomorrow.Ticks,
+            Category = "Test",
+            Utf8Message = "day2"u8,
+        };
+        sink.Write(in infoTomorrow);
         await sink.DisposeAsync();
 
         var files = Directory.GetFiles(_tempDir, "daily*");
@@ -174,14 +192,28 @@ public class FileSinkTests
         // Entry at hour H (now truncated to current hour)
         var now = DateTime.UtcNow;
         var thisHour = new DateTime(now.Year, now.Month, now.Day, now.Hour, 30, 0, DateTimeKind.Utc);
-        var entryH = new LogEntry(LogLevel.Information, 1, thisHour.Ticks, "Test");
-        sink.Write(in entryH, "hour1"u8);
+        var infoH = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = thisHour.Ticks,
+            Category = "Test",
+            Utf8Message = "hour1"u8,
+        };
+        sink.Write(in infoH);
         await Task.Delay(100);
 
         // Entry at hour H+1
         var nextHour = thisHour.AddHours(1);
-        var entryH1 = new LogEntry(LogLevel.Information, 1, nextHour.Ticks, "Test");
-        sink.Write(in entryH1, "hour2"u8);
+        var infoH1 = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = nextHour.Ticks,
+            Category = "Test",
+            Utf8Message = "hour2"u8,
+        };
+        sink.Write(in infoH1);
         await sink.DisposeAsync();
 
         var files = Directory.GetFiles(_tempDir, "hourly*");
@@ -196,14 +228,28 @@ public class FileSinkTests
             rollingInterval: RollingInterval.None);
 
         var now = DateTime.UtcNow;
-        var entry1 = new LogEntry(LogLevel.Information, 1, now.Ticks, "Test");
-        sink.Write(in entry1, "first"u8);
+        var info1 = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = now.Ticks,
+            Category = "Test",
+            Utf8Message = "first"u8,
+        };
+        sink.Write(in info1);
         await Task.Delay(100);
 
         // 2 hours later — should NOT roll
         var later = now.AddHours(2);
-        var entry2 = new LogEntry(LogLevel.Information, 1, later.Ticks, "Test");
-        sink.Write(in entry2, "second"u8);
+        var info2 = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = later.Ticks,
+            Category = "Test",
+            Utf8Message = "second"u8,
+        };
+        sink.Write(in info2);
         await sink.DisposeAsync();
 
         var files = Directory.GetFiles(_tempDir, "noroll*");
@@ -222,13 +268,27 @@ public class FileSinkTests
             rollingInterval: RollingInterval.Daily);
 
         var today = DateTime.UtcNow;
-        var entryToday = new LogEntry(LogLevel.Information, 1, today.Ticks, "Test");
-        sink.Write(in entryToday, "today"u8);
+        var infoToday = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = today.Ticks,
+            Category = "Test",
+            Utf8Message = "today"u8,
+        };
+        sink.Write(in infoToday);
         await Task.Delay(100);
 
         var tomorrow = today.AddDays(1);
-        var entryTomorrow = new LogEntry(LogLevel.Information, 1, tomorrow.Ticks, "Test");
-        sink.Write(in entryTomorrow, "tomorrow"u8);
+        var infoTomorrow = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = tomorrow.Ticks,
+            Category = "Test",
+            Utf8Message = "tomorrow"u8,
+        };
+        sink.Write(in infoTomorrow);
         await sink.DisposeAsync();
 
         // The rolled file should match pattern app.yyyy-MM-dd.log
@@ -245,13 +305,27 @@ public class FileSinkTests
 
         var now = DateTime.UtcNow;
         var thisHour = new DateTime(now.Year, now.Month, now.Day, now.Hour, 30, 0, DateTimeKind.Utc);
-        var entryH = new LogEntry(LogLevel.Information, 1, thisHour.Ticks, "Test");
-        sink.Write(in entryH, "hourA"u8);
+        var infoH = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = thisHour.Ticks,
+            Category = "Test",
+            Utf8Message = "hourA"u8,
+        };
+        sink.Write(in infoH);
         await Task.Delay(100);
 
         var nextHour = thisHour.AddHours(1);
-        var entryH1 = new LogEntry(LogLevel.Information, 1, nextHour.Ticks, "Test");
-        sink.Write(in entryH1, "hourB"u8);
+        var infoH1 = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            EventId = 1,
+            TimestampTicks = nextHour.Ticks,
+            Category = "Test",
+            Utf8Message = "hourB"u8,
+        };
+        sink.Write(in infoH1);
         await sink.DisposeAsync();
 
         // The rolled file should match pattern app.yyyy-MM-dd-HH.log
@@ -271,8 +345,15 @@ public class FileSinkTests
         // Write enough to trigger multiple size rolls within same day
         for (int i = 0; i < 3; i++)
         {
-            var entry = new LogEntry(LogLevel.Information, 1, now.Ticks, "Test");
-            sink.Write(in entry, "this-is-a-long-message-for-rolling"u8);
+            var info = new DispatchInfo
+            {
+                Level = LogLevel.Information,
+                EventId = 1,
+                TimestampTicks = now.Ticks,
+                Category = "Test",
+                Utf8Message = "this-is-a-long-message-for-rolling"u8,
+            };
+            sink.Write(in info);
             await Task.Delay(150);
         }
 
@@ -283,6 +364,12 @@ public class FileSinkTests
         Assert.That(files, Has.Length.GreaterThanOrEqualTo(2));
     }
 
-    private static LogEntry MakeEntry() => new(
-        LogLevel.Information, 1, DateTime.UtcNow.Ticks, "Test");
+    private static DispatchInfo MakeInfo(string message) => new()
+    {
+        Level = LogLevel.Information,
+        EventId = 1,
+        TimestampTicks = DateTime.UtcNow.Ticks,
+        Category = "Test",
+        Utf8Message = Encoding.UTF8.GetBytes(message),
+    };
 }

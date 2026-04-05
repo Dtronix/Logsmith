@@ -3,6 +3,7 @@ using System.Text.Json;
 using Logsmith;
 using Logsmith.Sample;
 using Logsmith.Sinks;
+using Log = Logsmith.Sample.Log;
 
 var order = new OrderInfo
 {
@@ -100,48 +101,20 @@ Log.ShutdownCritical();
 
 /// <summary>
 /// A structured sink that writes log entries as JSON lines to the console.
-/// Implements IStructuredLogSink so it receives typed properties from the generator.
+/// Reads pre-built JSON from DispatchInfo.Utf8Json.
 /// </summary>
-sealed class JsonStructuredSink : IStructuredLogSink
+sealed class JsonStructuredSink : ILogSink
 {
     public void Dispose() { }
 
     public bool IsEnabled(LogLevel level) => true;
 
-    /// <summary>
-    /// Text-only path — we skip this since WriteStructured provides richer data.
-    /// </summary>
-    public void Write(in LogEntry entry, ReadOnlySpan<byte> utf8Message) { }
-
-    /// <summary>
-    /// Structured path — receives typed state and a property writer delegate.
-    /// The generator creates a WriteProperties method per log call that writes
-    /// each parameter as a named JSON property.
-    /// </summary>
-    public void WriteStructured<TState>(
-        in LogEntry entry,
-        TState state,
-        WriteProperties<TState> propertyWriter)
-        where TState : allows ref struct
+    public void Write(in DispatchInfo info)
     {
-        using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream);
+        if (info.Utf8Json.Length == 0)
+            return;
 
-        writer.WriteStartObject();
-        writer.WriteString("level", entry.Level.ToString());
-        writer.WriteString("category", entry.Category);
-        writer.WriteNumber("eventId", entry.EventId);
-        writer.WriteNumber("timestampTicks", entry.TimestampTicks);
-
-        writer.WritePropertyName("properties");
-        writer.WriteStartObject();
-        propertyWriter(writer, state);
-        writer.WriteEndObject();
-
-        writer.WriteEndObject();
-        writer.Flush();
-
-        var json = Encoding.UTF8.GetString(stream.ToArray());
+        var json = Encoding.UTF8.GetString(info.Utf8Json);
         Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.Write("  [JSON] ");
         Console.ResetColor();

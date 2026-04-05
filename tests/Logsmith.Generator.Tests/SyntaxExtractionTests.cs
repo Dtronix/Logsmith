@@ -69,7 +69,7 @@ public class SyntaxExtractionTests
     }
 
     [Test]
-    public void ZeroMessageParams_EmitsEmptyStateStruct()
+    public void ZeroMessageParams_EmitsDispatchInfo()
     {
         var source = """
             using Logsmith;
@@ -85,12 +85,12 @@ public class SyntaxExtractionTests
         var result = GeneratorTestHelper.RunGenerator(compilation);
 
         var generated = GetGeneratedSource(result, "TestNs.Log");
-        Assert.That(generated, Does.Contain("ShutdownState"));
-        Assert.That(generated, Does.Contain("LogManager.Dispatch"));
+        Assert.That(generated, Does.Contain("DispatchInfo"));
+        Assert.That(generated, Does.Contain("__ctx.Dispatch"));
     }
 
     [Test]
-    public void CallerInfoOnly_EmitsEmptyStateStruct()
+    public void CallerInfoOnly_EmitsDispatchInfoWithCallerFields()
     {
         var source = """
             using Logsmith;
@@ -110,10 +110,10 @@ public class SyntaxExtractionTests
         var result = GeneratorTestHelper.RunGenerator(compilation);
 
         var generated = GetGeneratedSource(result, "TestNs.Log");
-        Assert.That(generated, Does.Contain("CheckpointState"));
-        Assert.That(generated, Does.Contain("callerFile: file"));
-        Assert.That(generated, Does.Contain("callerLine: line"));
-        Assert.That(generated, Does.Contain("callerMember: member"));
+        Assert.That(generated, Does.Contain("DispatchInfo"));
+        Assert.That(generated, Does.Contain("CallerFile = file"));
+        Assert.That(generated, Does.Contain("CallerLine = line"));
+        Assert.That(generated, Does.Contain("CallerMember = member"));
     }
 
     [Test]
@@ -246,7 +246,7 @@ public class SyntaxExtractionTests
     }
 
     [Test]
-    public void ExceptionParam_ClassifiedAndPassedToLogEntry()
+    public void ExceptionParam_ClassifiedAndPassedToDispatchInfo()
     {
         var source = """
             using Logsmith;
@@ -263,7 +263,7 @@ public class SyntaxExtractionTests
         var result = GeneratorTestHelper.RunGenerator(compilation);
 
         var generated = GetGeneratedSource(result, "TestNs.Log");
-        Assert.That(generated, Does.Contain("exception: ex"));
+        Assert.That(generated, Does.Contain("Exception = ex"));
     }
 
     [Test]
@@ -411,9 +411,9 @@ public class SyntaxExtractionTests
     }
 
     [Test]
-    public void NullableReferenceType_PreservedOnStateStruct()
+    public void NullableReferenceType_PreservedInMethodSignature()
     {
-        // CS8604: possible null reference argument when passing nullable to non-nullable state ctor
+        // Nullable parameter type should be preserved in the generated method implementation
         var source = """
             using Logsmith;
             namespace TestNs;
@@ -428,8 +428,8 @@ public class SyntaxExtractionTests
         var result = GeneratorTestHelper.RunGenerator(compilation);
 
         var generated = GetGeneratedSource(result, "TestNs.Log");
-        // State struct field and constructor parameter should be nullable
-        Assert.That(generated, Does.Contain("readonly string? name;"));
+        // Method parameter should be nullable
+        Assert.That(generated, Does.Contain("string? name"));
     }
 
     [Test]
@@ -469,10 +469,8 @@ public class SyntaxExtractionTests
         var generated = GetGeneratedSource(result, "TestNs.Log");
         // Method signature should have 'in' modifier
         Assert.That(generated, Does.Contain("in global::Acme.Models.SensorReading reading"));
-        // State struct constructor should have 'in' modifier
-        Assert.That(generated, Does.Contain("internal SensorDataState(in global::Acme.Models.SensorReading reading)"));
-        // State construction should pass 'in'
-        Assert.That(generated, Does.Contain("new SensorDataState(in reading)"));
+        // DispatchInfo should be created directly (no state struct)
+        Assert.That(generated, Does.Contain("DispatchInfo"));
     }
 
     [Test]

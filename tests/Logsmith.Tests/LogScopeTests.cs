@@ -1,4 +1,3 @@
-using System.Text;
 using Logsmith.Sinks;
 
 namespace Logsmith.Tests;
@@ -13,110 +12,89 @@ public class LogScopeTests
     public void TearDown() => LogManager.Reset();
 
     [Test]
-    public void Push_SingleProperty_AppearsInEnumeration()
-    {
-        using var scope = LogScope.Push("RequestId", "abc-123");
-
-        var props = CollectProperties();
-        Assert.That(props, Has.Count.EqualTo(1));
-        Assert.That(props[0].Key, Is.EqualTo("RequestId"));
-        Assert.That(props[0].Value, Is.EqualTo("abc-123"));
-    }
-
-    [Test]
-    public void Push_MultipleProperties_AllAppear()
-    {
-        var kvps = new KeyValuePair<string, string>[]
-        {
-            new("A", "1"),
-            new("B", "2"),
-        };
-        using var scope = LogScope.Push(kvps);
-
-        var props = CollectProperties();
-        Assert.That(props, Has.Count.EqualTo(2));
-    }
-
-    [Test]
-    public void Dispose_RestoresParent()
-    {
-        using (LogScope.Push("outer", "1"))
-        {
-            using (LogScope.Push("inner", "2"))
-            {
-                Assert.That(CollectProperties(), Has.Count.EqualTo(2));
-            }
-
-            var after = CollectProperties();
-            Assert.That(after, Has.Count.EqualTo(1));
-            Assert.That(after[0].Key, Is.EqualTo("outer"));
-        }
-
-        Assert.That(LogScope.Current, Is.Null);
-    }
-
-    [Test]
-    public void Dispatch_TextSink_IncludesScopeProperties()
+    public void Scoped_AddsPathSegment()
     {
         var sink = new RecordingSink();
         LogManager.Initialize(c => c.AddSink(sink));
 
-        using var scope = LogScope.Push("TraceId", "xyz");
-        DispatchTestMessage(LogLevel.Information, "hello");
+        var logger = LogManager.GetLogger("Test");
+        using var scope = logger.Scoped("Handler");
+        ((ILogger)scope).Information("in scope");
 
-        Assert.That(sink.Entries[0].Message, Does.Contain("[TraceId=xyz]"));
+        Assert.That(sink.Entries[0].Path, Is.EqualTo("Handler"));
     }
 
     [Test]
-    public void Dispatch_NoScope_MessageUnchanged()
+    public void Scoped_DisposesClearsSegment()
     {
         var sink = new RecordingSink();
         LogManager.Initialize(c => c.AddSink(sink));
 
-        DispatchTestMessage(LogLevel.Information, "plain");
+        var logger = LogManager.GetLogger("Test");
+        var scope = logger.Scoped("Temp");
+        ((ILogger)scope).Information("before dispose");
+        scope.Dispose();
+        ((ILogger)scope).Information("after dispose");
 
-        Assert.That(sink.Entries[0].Message, Is.EqualTo("plain"));
+        Assert.That(sink.Entries[0].Path, Is.EqualTo("Temp"));
+        // After dispose, path segment is null so path is empty/null
+        Assert.That(sink.Entries[1].Path, Is.Null);
     }
 
     [Test]
-    public void Scope_FlowsThroughAsyncLocal()
+    public void Scoped_UsingBlock_AutoDisposes()
     {
-        List<KeyValuePair<string, string>>? innerProps = null;
+        var sink = new RecordingSink();
+        LogManager.Initialize(c => c.AddSink(sink));
 
-        using var scope = LogScope.Push("key", "val");
-        var task = Task.Run(() =>
+        var logger = LogManager.GetLogger("Test");
+        LogScope scope;
+        using (scope = logger.Scoped("Block"))
         {
-            innerProps = CollectProperties();
-        });
-        task.Wait();
-
-        Assert.That(innerProps, Has.Count.EqualTo(1));
-        Assert.That(innerProps![0].Key, Is.EqualTo("key"));
-    }
-
-    private static List<KeyValuePair<string, string>> CollectProperties()
-    {
-        var list = new List<KeyValuePair<string, string>>();
-        var enumerator = LogScope.EnumerateProperties();
-        while (enumerator.MoveNext())
-        {
-            list.Add(enumerator.Current);
+            ((ILogger)scope).Information("inside");
         }
-        return list;
+
+        Assert.That(sink.Entries[0].Path, Is.EqualTo("Block"));
     }
 
-    private static void DispatchTestMessage(LogLevel level, string message, string category = "Test")
+    [Test]
+    public void Scoped_Nested_CombinesPaths()
     {
-        if (!LogManager.IsEnabled(level, category))
-            return;
+        var sink = new RecordingSink();
+        LogManager.Initialize(c => c.AddSink(sink));
 
-        var entry = new LogEntry(
-            level: level,
-            eventId: 1,
-            timestampTicks: DateTime.UtcNow.Ticks,
-            category: category);
+        var logger = LogManager.GetLogger("Test");
+        using var outer = logger.Scoped("Service");
+        using var inner = ((ILogger)outer).Scoped("Handler");
+        ((ILogger)inner).Information("nested");
 
-        var utf8 = Encoding.UTF8.GetBytes(message).AsSpan();
-        LogManager.Dispatch(in entry, utf8, 0, static (writer, state) => { });
+        Assert.That(sink.Entries[0].Path, Is.EqualTo("Service|Handler"));
+    }
+
+    [Test]
+    public void Scoped_DoubleDispose_IsIdempotent()
+    {
+        var sink = new RecordingSink();
+        LogManager.Initialize(c => c.AddSink(sink));
+
+        var logger = LogManager.GetLogger("Test");
+        var scope = logger.Scoped("Test");
+        scope.Dispose();
+        scope.Dispose(); // should not throw
+
+        Assert.Pass();
+    }
+
+    [Test]
+    public void Scoped_HasCorrectCategory()
+    {
+        var sink = new RecordingSink();
+        LogManager.Initialize(c => c.AddSink(sink));
+
+        var logger = LogManager.GetLogger("MyService");
+        using var scope = logger.Scoped("Handler");
+        ((ILogger)scope).Information("msg");
+
+        Assert.That(sink.Entries[0].Category, Is.EqualTo("MyService"));
     }
 }

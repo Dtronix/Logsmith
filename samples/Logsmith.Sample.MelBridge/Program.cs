@@ -3,6 +3,7 @@ using Logsmith.Extensions.Logging;
 using Logsmith.Sample.MelBridge;
 using Logsmith.Sinks;
 using Microsoft.Extensions.DependencyInjection;
+using Log = Logsmith.Sample.MelBridge.Log;
 using Microsoft.Extensions.Logging;
 
 // ── 1. Initialize Logsmith ─────────────────────────────────────────────
@@ -20,18 +21,11 @@ Console.WriteLine("── Direct Logsmith logging ──");
 Log.AppStarted();
 Log.ProcessingOrder("ORD-001", "Alice");
 
-// ── 3. Scoped context ──────────────────────────────────────────────────
+// ── 3. Additional logging ──────────────────────────────────────────────
 Console.WriteLine();
-Console.WriteLine("── Scoped context (LogScope) ──");
-using (LogScope.Push("RequestId", "req-abc-123"))
-{
-    using (LogScope.Push("UserId", "user-42"))
-    {
-        Log.ProcessingOrder("ORD-002", "Bob");
-        Log.SlowQuery(1500);
-    }
-}
-// Scope is gone — no enrichment
+Console.WriteLine("── Additional logging ──");
+Log.ProcessingOrder("ORD-002", "Bob");
+Log.SlowQuery(1500);
 Log.ProcessingOrder("ORD-003", "Charlie");
 
 // ── 4. MEL bridge ──────────────────────────────────────────────────────
@@ -46,20 +40,13 @@ services.AddLogging(builder =>
 });
 
 using var sp = services.BuildServiceProvider();
-var melLogger = sp.GetRequiredService<ILogger<Program>>();
+var melLogger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Program>>();
 
 melLogger.LogInformation("Hello from MEL bridge");
 melLogger.LogWarning("Order {OrderId} took {Duration}ms", "ORD-004", 2300);
 
-// MEL scopes flow into LogScope
-using (melLogger.BeginScope(new Dictionary<string, object> { ["CorrelationId"] = "corr-xyz" }))
-{
-    melLogger.LogInformation("Inside MEL scope");
-    // Source-generated logs also pick up the scope
-    Log.ProcessingOrder("ORD-005", "Diana");
-}
-
-melLogger.LogInformation("Outside MEL scope — no enrichment");
+melLogger.LogInformation("Additional MEL message");
+Log.ProcessingOrder("ORD-005", "Diana");
 
 // ── 5. Exception logging via MEL ───────────────────────────────────────
 Console.WriteLine();
