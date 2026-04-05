@@ -360,7 +360,8 @@ internal static class InterceptorEmitter
             sb.AppendLine("        {");
             sb.AppendLine("            if (!handler.IsEnabled) return;");
 
-            // Extract carrier state
+            // Extract carrier state and context BEFORE returning carrier to pool
+            sb.AppendLine($"            var __ctx = @this.Context;");
             sb.AppendLine($"            string? __tag = null;");
             sb.AppendLine($"            if (@this is {carrierType} __carrier)");
             sb.AppendLine("            {");
@@ -381,7 +382,7 @@ internal static class InterceptorEmitter
             sb.AppendLine($"                CallerLine = {site.CallerLine},");
             sb.AppendLine($"                CallerMember = \"{EscapeString(site.CallerMember)}\",");
             sb.AppendLine("            };");
-            sb.AppendLine("            @this.Context.Dispatch(in __info);");
+            sb.AppendLine("            __ctx.Dispatch(in __info);");
             sb.AppendLine("        }");
         }
         else
@@ -398,7 +399,8 @@ internal static class InterceptorEmitter
             sb.AppendLine("        {");
             sb.AppendLine($"            if (!@this.IsEnabled(global::Logsmith.LogLevel.{levelName})) return;");
 
-            // Extract carrier state
+            // Extract carrier state and context BEFORE returning carrier to pool
+            sb.AppendLine($"            var __ctx = @this.Context;");
             sb.AppendLine($"            string? __tag = null;");
             sb.AppendLine($"            if (@this is {carrierType} __carrier)");
             sb.AppendLine("            {");
@@ -418,7 +420,7 @@ internal static class InterceptorEmitter
             sb.AppendLine($"                CallerLine = {site.CallerLine},");
             sb.AppendLine($"                CallerMember = \"{EscapeString(site.CallerMember)}\",");
             sb.AppendLine("            };");
-            sb.AppendLine("            @this.Context.Dispatch(in __info);");
+            sb.AppendLine("            __ctx.Dispatch(in __info);");
             sb.AppendLine("        }");
         }
 
