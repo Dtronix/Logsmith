@@ -107,9 +107,12 @@ public sealed class LoggerContext
         if (_pathNode is null) return null;
 
         var currentVersion = _pathNode.CalculateVersionSum();
-        var cachedBytes = _cachedPathBytes;
-        if (cachedBytes is not null && Volatile.Read(ref _cachedPathVersion) == currentVersion)
-            return cachedBytes;
+        if (Volatile.Read(ref _cachedPathVersion) == currentVersion)
+        {
+            var cachedBytes = _cachedPathBytes;
+            if (cachedBytes is not null)
+                return cachedBytes;
+        }
 
         var maxBytes = _pathNode.CalculateMaxByteCount();
         if (maxBytes == 0)

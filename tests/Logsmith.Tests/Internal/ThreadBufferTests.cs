@@ -122,7 +122,7 @@ public class ThreadBufferTests
     }
 
     [Test]
-    public void GetJsonWriter_ResetsToNewOutput()
+    public void GetJsonWriter_ResetsToNewOutput_ProducesValidJson()
     {
         var buf1 = new ArrayBufferWriter<byte>(64);
         var writer = ThreadBuffer.GetJsonWriter(buf1);
@@ -131,7 +131,8 @@ public class ThreadBufferTests
         writer.WriteEndObject();
         writer.Flush();
 
-        Assert.That(buf1.WrittenCount, Is.GreaterThan(0));
+        var json1 = JsonDocument.Parse(buf1.WrittenSpan.ToArray());
+        Assert.That(json1.RootElement.GetProperty("a").GetInt32(), Is.EqualTo(1));
 
         var buf2 = new ArrayBufferWriter<byte>(64);
         var writer2 = ThreadBuffer.GetJsonWriter(buf2);
@@ -142,7 +143,8 @@ public class ThreadBufferTests
         writer2.WriteEndObject();
         writer2.Flush();
 
-        Assert.That(buf2.WrittenCount, Is.GreaterThan(0));
+        var json2 = JsonDocument.Parse(buf2.WrittenSpan.ToArray());
+        Assert.That(json2.RootElement.GetProperty("b").GetInt32(), Is.EqualTo(2));
     }
 
     [Test]
