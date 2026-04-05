@@ -10,11 +10,14 @@ internal static class GeneratorTestHelper
     private static readonly CSharpParseOptions ParseOptions = new(LanguageVersion.Latest);
 
     internal static CSharpCompilation CreateCompilation(params string[] sources)
+        => CreateCompilation(ParseOptions, sources);
+
+    internal static CSharpCompilation CreateCompilation(CSharpParseOptions parseOptions, params string[] sources)
     {
         var syntaxTrees = new List<SyntaxTree>();
         foreach (var source in sources)
         {
-            syntaxTrees.Add(CSharpSyntaxTree.ParseText(source, ParseOptions));
+            syntaxTrees.Add(CSharpSyntaxTree.ParseText(source, parseOptions));
         }
 
         var references = GetMetadataReferences();
