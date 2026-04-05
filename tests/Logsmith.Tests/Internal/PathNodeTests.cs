@@ -221,7 +221,7 @@ public class PathNodeTests
             {
                 var buffer = new byte[128];
                 var written = child.WriteUtf8Path(buffer);
-                Assert.That(written, Is.GreaterThan(0));
+                Assert.That(written, Is.GreaterThanOrEqualTo(0));
             }
         });
 

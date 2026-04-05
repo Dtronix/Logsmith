@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);LSMITH013</NoWarn>
     <InterceptorsNamespaces>$(InterceptorsNamespaces);Logsmith.Generated</InterceptorsNamespaces>
   </PropertyGroup>
 
