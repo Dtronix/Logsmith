@@ -12,7 +12,7 @@ public static class LogManager
     private static int _shutdownCompleted;
 
     private static readonly TimeSpan ProcessExitTimeout = TimeSpan.FromSeconds(5);
-    private static readonly ConcurrentDictionary<string, LoggerContext> _contexts = new();
+    private static readonly ConcurrentDictionary<string, LoggerInstance> _loggers = new();
 
     public static void Initialize(Action<LogConfigBuilder> configure)
     {
@@ -125,19 +125,27 @@ public static class LogManager
     }
 
     /// <summary>
-    /// Gets or creates a LoggerContext for the given category.
+    /// Gets or creates a logger for the given category.
     /// </summary>
-    public static LoggerContext GetLogger(string category)
+    public static ILogger GetLogger(string category)
     {
-        return _contexts.GetOrAdd(category, cat => new LoggerContext(cat));
+        return _loggers.GetOrAdd(category, cat => new LoggerInstance(new LoggerContext(cat)));
     }
 
     /// <summary>
-    /// Gets or creates a LoggerContext for the given type, using the type name as category.
+    /// Gets or creates a logger for the given type, using the type name as category.
     /// </summary>
-    public static LoggerContext GetLogger<T>()
+    public static ILogger GetLogger<T>()
     {
         return GetLogger(typeof(T).Name);
+    }
+
+    /// <summary>
+    /// Gets the LoggerContext for generated code that needs direct context access.
+    /// </summary>
+    internal static LoggerContext GetLoggerContext(string category)
+    {
+        return ((LoggerInstance)GetLogger(category)).Context;
     }
 
     public static bool IsEnabled(LogLevel level)
@@ -270,7 +278,7 @@ public static class LogManager
     internal static void Reset()
     {
         StopCapturingExceptions();
-        _contexts.Clear();
+        _loggers.Clear();
         var old = _config;
         _config = null;
         Interlocked.Exchange(ref _initialized, 0);

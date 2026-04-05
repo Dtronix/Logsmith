@@ -39,7 +39,7 @@ services.AddLogging(builder =>
 });
 
 using var sp = services.BuildServiceProvider();
-var melLogger = sp.GetRequiredService<ILogger<Program>>();
+var melLogger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Program>>();
 
 melLogger.LogInformation("Hello from MEL bridge");
 melLogger.LogWarning("Order {OrderId} took {Duration}ms", "ORD-004", 2300);

@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Logsmith.Extensions.Logging;
 
-internal sealed class LogsmithLogger : ILogger
+internal sealed class LogsmithLogger : Microsoft.Extensions.Logging.ILogger
 {
     private readonly string _category;
 
