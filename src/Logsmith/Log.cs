@@ -26,9 +26,39 @@ public static class Log
         logger.Context.Dispatch(in info);
     }
 
+    [Conditional("LOGSMITH_TRACE")]
+    public static void Trace(ILogger logger, Exception? exception,
+        [InterpolatedStringHandlerArgument("logger", "exception")] ref LogTraceHandler handler)
+    {
+        if (!handler.IsEnabled) return;
+        var info = new DispatchInfo
+        {
+            Level = LogLevel.Trace,
+            Utf8Message = handler.GetTextWritten(),
+            Utf8Json = handler.GetJsonWritten(),
+            Exception = handler.Exception,
+        };
+        logger.Context.Dispatch(in info);
+    }
+
     [Conditional("LOGSMITH_DEBUG")]
     public static void Debug(ILogger logger,
         [InterpolatedStringHandlerArgument("logger")] ref LogDebugHandler handler)
+    {
+        if (!handler.IsEnabled) return;
+        var info = new DispatchInfo
+        {
+            Level = LogLevel.Debug,
+            Utf8Message = handler.GetTextWritten(),
+            Utf8Json = handler.GetJsonWritten(),
+            Exception = handler.Exception,
+        };
+        logger.Context.Dispatch(in info);
+    }
+
+    [Conditional("LOGSMITH_DEBUG")]
+    public static void Debug(ILogger logger, Exception? exception,
+        [InterpolatedStringHandlerArgument("logger", "exception")] ref LogDebugHandler handler)
     {
         if (!handler.IsEnabled) return;
         var info = new DispatchInfo
@@ -55,8 +85,36 @@ public static class Log
         logger.Context.Dispatch(in info);
     }
 
+    public static void Information(ILogger logger, Exception? exception,
+        [InterpolatedStringHandlerArgument("logger", "exception")] ref LogInformationHandler handler)
+    {
+        if (!handler.IsEnabled) return;
+        var info = new DispatchInfo
+        {
+            Level = LogLevel.Information,
+            Utf8Message = handler.GetTextWritten(),
+            Utf8Json = handler.GetJsonWritten(),
+            Exception = handler.Exception,
+        };
+        logger.Context.Dispatch(in info);
+    }
+
     public static void Warning(ILogger logger,
         [InterpolatedStringHandlerArgument("logger")] ref LogWarningHandler handler)
+    {
+        if (!handler.IsEnabled) return;
+        var info = new DispatchInfo
+        {
+            Level = LogLevel.Warning,
+            Utf8Message = handler.GetTextWritten(),
+            Utf8Json = handler.GetJsonWritten(),
+            Exception = handler.Exception,
+        };
+        logger.Context.Dispatch(in info);
+    }
+
+    public static void Warning(ILogger logger, Exception? exception,
+        [InterpolatedStringHandlerArgument("logger", "exception")] ref LogWarningHandler handler)
     {
         if (!handler.IsEnabled) return;
         var info = new DispatchInfo
