@@ -1,4 +1,6 @@
+using System.Runtime.CompilerServices;
 using System.Text;
+using Logsmith.Handlers;
 
 namespace Logsmith;
 
@@ -20,7 +22,6 @@ public interface ILogger
     bool IsEnabled(LogLevel level) => Context.IsEnabled(level);
 
     // ── Terminal methods (string-based) ─────────────────────────────────
-    // Handler-based overloads are added in Phase 4.
 
     void Trace(string message) => DispatchString(LogLevel.Trace, message, null);
     void Trace(string message, Exception? exception) => DispatchString(LogLevel.Trace, message, exception);
@@ -39,6 +40,44 @@ public interface ILogger
 
     void Critical(string message) => DispatchString(LogLevel.Critical, message, null);
     void Critical(string message, Exception? exception) => DispatchString(LogLevel.Critical, message, exception);
+
+    // ── Terminal methods (handler-based) ────────────────────────────────
+
+    void Trace([InterpolatedStringHandlerArgument("")] ref LogTraceHandler handler)
+        => DispatchHandler(LogLevel.Trace, ref handler);
+    void Trace(Exception? exception,
+        [InterpolatedStringHandlerArgument("", "exception")] ref LogTraceHandler handler)
+        => DispatchHandler(LogLevel.Trace, ref handler);
+
+    void Debug([InterpolatedStringHandlerArgument("")] ref LogDebugHandler handler)
+        => DispatchHandler(LogLevel.Debug, ref handler);
+    void Debug(Exception? exception,
+        [InterpolatedStringHandlerArgument("", "exception")] ref LogDebugHandler handler)
+        => DispatchHandler(LogLevel.Debug, ref handler);
+
+    void Information([InterpolatedStringHandlerArgument("")] ref LogInformationHandler handler)
+        => DispatchHandler(LogLevel.Information, ref handler);
+    void Information(Exception? exception,
+        [InterpolatedStringHandlerArgument("", "exception")] ref LogInformationHandler handler)
+        => DispatchHandler(LogLevel.Information, ref handler);
+
+    void Warning([InterpolatedStringHandlerArgument("")] ref LogWarningHandler handler)
+        => DispatchHandler(LogLevel.Warning, ref handler);
+    void Warning(Exception? exception,
+        [InterpolatedStringHandlerArgument("", "exception")] ref LogWarningHandler handler)
+        => DispatchHandler(LogLevel.Warning, ref handler);
+
+    void Error([InterpolatedStringHandlerArgument("")] ref LogErrorHandler handler)
+        => DispatchHandler(LogLevel.Error, ref handler);
+    void Error(Exception? exception,
+        [InterpolatedStringHandlerArgument("", "exception")] ref LogErrorHandler handler)
+        => DispatchHandler(LogLevel.Error, ref handler);
+
+    void Critical([InterpolatedStringHandlerArgument("")] ref LogCriticalHandler handler)
+        => DispatchHandler(LogLevel.Critical, ref handler);
+    void Critical(Exception? exception,
+        [InterpolatedStringHandlerArgument("", "exception")] ref LogCriticalHandler handler)
+        => DispatchHandler(LogLevel.Critical, ref handler);
 
     // ── Chain methods ───────────────────────────────────────────────────
     // Default implementations are stubs. Interceptors (Phase 6) provide
@@ -83,7 +122,7 @@ public interface ILogger
         set => Context.PathSegment = value;
     }
 
-    // ── Private helper ──────────────────────────────────────────────────
+    // ── Private helpers ─────────────────────────────────────────────────
 
     private void DispatchString(LogLevel level, string message, Exception? exception)
     {
@@ -94,6 +133,84 @@ public interface ILogger
             Level = level,
             Utf8Message = bytes,
             Exception = exception,
+        };
+        Context.Dispatch(in info);
+    }
+
+    private void DispatchHandler(LogLevel level, ref LogTraceHandler handler)
+    {
+        if (!handler.IsEnabled) return;
+        var info = new DispatchInfo
+        {
+            Level = level,
+            Utf8Message = handler.GetTextWritten(),
+            Utf8Json = handler.GetJsonWritten(),
+            Exception = handler.Exception,
+        };
+        Context.Dispatch(in info);
+    }
+
+    private void DispatchHandler(LogLevel level, ref LogDebugHandler handler)
+    {
+        if (!handler.IsEnabled) return;
+        var info = new DispatchInfo
+        {
+            Level = level,
+            Utf8Message = handler.GetTextWritten(),
+            Utf8Json = handler.GetJsonWritten(),
+            Exception = handler.Exception,
+        };
+        Context.Dispatch(in info);
+    }
+
+    private void DispatchHandler(LogLevel level, ref LogInformationHandler handler)
+    {
+        if (!handler.IsEnabled) return;
+        var info = new DispatchInfo
+        {
+            Level = level,
+            Utf8Message = handler.GetTextWritten(),
+            Utf8Json = handler.GetJsonWritten(),
+            Exception = handler.Exception,
+        };
+        Context.Dispatch(in info);
+    }
+
+    private void DispatchHandler(LogLevel level, ref LogWarningHandler handler)
+    {
+        if (!handler.IsEnabled) return;
+        var info = new DispatchInfo
+        {
+            Level = level,
+            Utf8Message = handler.GetTextWritten(),
+            Utf8Json = handler.GetJsonWritten(),
+            Exception = handler.Exception,
+        };
+        Context.Dispatch(in info);
+    }
+
+    private void DispatchHandler(LogLevel level, ref LogErrorHandler handler)
+    {
+        if (!handler.IsEnabled) return;
+        var info = new DispatchInfo
+        {
+            Level = level,
+            Utf8Message = handler.GetTextWritten(),
+            Utf8Json = handler.GetJsonWritten(),
+            Exception = handler.Exception,
+        };
+        Context.Dispatch(in info);
+    }
+
+    private void DispatchHandler(LogLevel level, ref LogCriticalHandler handler)
+    {
+        if (!handler.IsEnabled) return;
+        var info = new DispatchInfo
+        {
+            Level = level,
+            Utf8Message = handler.GetTextWritten(),
+            Utf8Json = handler.GetJsonWritten(),
+            Exception = handler.Exception,
         };
         Context.Dispatch(in info);
     }
