@@ -11,9 +11,21 @@ public sealed class LogConfigBuilder
     private readonly List<Func<IDisposable>> _monitorFactories = new();
     private bool _captureUnhandledExceptions;
     private bool _observeTaskExceptions;
+    private bool _throwOnDPanic;
 
     public LogLevel MinimumLevel { get; set; } = LogLevel.Information;
     public Action<Exception>? InternalErrorHandler { get; set; }
+
+    /// <summary>
+    /// When true, <see cref="ILogger.DPanic(string)"/> and its overloads throw
+    /// <see cref="InvalidOperationException"/> after dispatching at Error level.
+    /// Intended for dev/test environments; defaults to false.
+    /// </summary>
+    public bool ThrowOnDPanic
+    {
+        get => _throwOnDPanic;
+        set => _throwOnDPanic = value;
+    }
 
     public void SetMinimumLevel(string category, LogLevel level)
     {
@@ -102,6 +114,6 @@ public sealed class LogConfigBuilder
                 monitors[i] = _monitorFactories[i]();
         }
         return new LogConfig(MinimumLevel, _categoryOverrides, sinkSet, InternalErrorHandler, monitors,
-            _captureUnhandledExceptions, _observeTaskExceptions);
+            _captureUnhandledExceptions, _observeTaskExceptions, _throwOnDPanic);
     }
 }

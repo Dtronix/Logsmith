@@ -148,6 +148,11 @@ public static class LogManager
         return ((LoggerInstance)GetLogger(category)).Context;
     }
 
+    internal static bool ShouldThrowOnDPanic()
+    {
+        return _config?.ThrowOnDPanic ?? false;
+    }
+
     public static bool IsEnabled(LogLevel level)
     {
         var config = _config;
@@ -260,7 +265,7 @@ public static class LogManager
         if (current is null) return;
 
         var newConfig = new LogConfig(level, current.CategoryOverrides.ToDictionary(), current.Sinks, current.ErrorHandler, current.Monitors,
-            current.CaptureUnhandledExceptions, current.ObserveTaskExceptions);
+            current.CaptureUnhandledExceptions, current.ObserveTaskExceptions, current.ThrowOnDPanic);
         _config = newConfig;
     }
 
@@ -270,7 +275,7 @@ public static class LogManager
         if (current is null) return;
 
         var newConfig = new LogConfig(current.MinimumLevel, overrides, current.Sinks, current.ErrorHandler, current.Monitors,
-            current.CaptureUnhandledExceptions, current.ObserveTaskExceptions);
+            current.CaptureUnhandledExceptions, current.ObserveTaskExceptions, current.ThrowOnDPanic);
         _config = newConfig;
     }
 

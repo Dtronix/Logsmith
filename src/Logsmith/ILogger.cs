@@ -41,6 +41,53 @@ public interface ILogger
     void Critical(string message) => DispatchString(LogLevel.Critical, message, null);
     void Critical(string message, Exception? exception) => DispatchString(LogLevel.Critical, message, exception);
 
+    /// <summary>
+    /// Logs at Error level, then throws <see cref="InvalidOperationException"/> if
+    /// <see cref="LogConfigBuilder.ThrowOnDPanic"/> is enabled. Use for conditions
+    /// that should never occur — fail-fast in dev/test, log-and-continue in production.
+    /// </summary>
+    void DPanic(string message)
+    {
+        DispatchString(LogLevel.Error, message, null);
+        if (LogManager.ShouldThrowOnDPanic())
+            throw new InvalidOperationException(message);
+    }
+
+    /// <summary>
+    /// Logs at Error level with an exception, then throws <see cref="InvalidOperationException"/>
+    /// if <see cref="LogConfigBuilder.ThrowOnDPanic"/> is enabled.
+    /// </summary>
+    void DPanic(string message, Exception? exception)
+    {
+        DispatchString(LogLevel.Error, message, exception);
+        if (LogManager.ShouldThrowOnDPanic())
+            throw new InvalidOperationException(message, exception);
+    }
+
+    /// <summary>
+    /// Handler-based DPanic — logs at Error level with structured data, then throws
+    /// if <see cref="LogConfigBuilder.ThrowOnDPanic"/> is enabled.
+    /// </summary>
+    void DPanic([InterpolatedStringHandlerArgument("")] ref LogErrorHandler handler)
+    {
+        DispatchHandler(LogLevel.Error, ref handler);
+        if (LogManager.ShouldThrowOnDPanic())
+            throw new InvalidOperationException(Encoding.UTF8.GetString(handler.GetTextWritten()));
+    }
+
+    /// <summary>
+    /// Handler-based DPanic with exception — logs at Error level with structured data,
+    /// then throws if <see cref="LogConfigBuilder.ThrowOnDPanic"/> is enabled.
+    /// </summary>
+    void DPanic(Exception? exception,
+        [InterpolatedStringHandlerArgument("", "exception")] ref LogErrorHandler handler)
+    {
+        DispatchHandler(LogLevel.Error, ref handler);
+        if (LogManager.ShouldThrowOnDPanic())
+            throw new InvalidOperationException(
+                Encoding.UTF8.GetString(handler.GetTextWritten()), exception);
+    }
+
     // ── Terminal methods (handler-based) ────────────────────────────────
 
     void Trace([InterpolatedStringHandlerArgument("")] ref LogTraceHandler handler)
