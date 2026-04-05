@@ -105,4 +105,49 @@ public class DiagnosticTests
         Assert.That(result.Diagnostics, Has.Some.Matches<Diagnostic>(
             d => d.Id == "LSMITH005"));
     }
+
+    [Test]
+    public void LSMITH013_ChainBrokenByVariable()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public class MyService
+            {
+                public void DoWork(ILogger logger)
+                {
+                    var filtered = logger.When(true);
+                    filtered.Debug($"broken chain {1}");
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        Assert.That(result.Diagnostics, Has.Some.Matches<Diagnostic>(
+            d => d.Id == "LSMITH013"));
+    }
+
+    [Test]
+    public void LSMITH013_NotFiredForFluentChain()
+    {
+        var source = """
+            using Logsmith;
+            namespace TestNs;
+            public class MyService
+            {
+                public void DoWork(ILogger logger)
+                {
+                    logger.When(true).Debug($"fluent chain {1}");
+                }
+            }
+            """;
+
+        var compilation = GeneratorTestHelper.CreateCompilation(source);
+        var result = GeneratorTestHelper.RunGenerator(compilation);
+
+        Assert.That(result.Diagnostics, Has.None.Matches<Diagnostic>(
+            d => d.Id == "LSMITH013"));
+    }
 }

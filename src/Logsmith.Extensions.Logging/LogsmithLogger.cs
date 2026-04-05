@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.Unicode;
 using Microsoft.Extensions.Logging;
 
 namespace Logsmith.Extensions.Logging;
@@ -38,9 +37,13 @@ internal sealed class LogsmithLogger : Microsoft.Extensions.Logging.ILogger
 
         var message = formatter(state, exception);
 
-        // Encode message to UTF-8 via stackalloc
-        Span<byte> buffer = stackalloc byte[Math.Min(message.Length * 3, 4096)];
-        var status = Utf8.FromUtf16(message, buffer, out _, out int bytesWritten);
+        // Encode message to UTF-8 — stackalloc for typical messages, heap fallback for large ones
+        int maxBytes = Encoding.UTF8.GetByteCount(message);
+        byte[]? rented = null;
+        Span<byte> buffer = maxBytes <= 4096
+            ? stackalloc byte[maxBytes]
+            : (rented = System.Buffers.ArrayPool<byte>.Shared.Rent(maxBytes));
+        int bytesWritten = Encoding.UTF8.GetBytes(message, buffer);
         var utf8Message = buffer[..bytesWritten];
 
         var info = new DispatchInfo
@@ -56,6 +59,9 @@ internal sealed class LogsmithLogger : Microsoft.Extensions.Logging.ILogger
         };
 
         LogManager.Dispatch(in info);
+
+        if (rented is not null)
+            System.Buffers.ArrayPool<byte>.Shared.Return(rented);
     }
 
     private static Logsmith.LogLevel MapLevel(Microsoft.Extensions.Logging.LogLevel level)

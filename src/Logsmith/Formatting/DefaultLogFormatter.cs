@@ -27,7 +27,14 @@ public sealed class DefaultLogFormatter : ILogFormatter
         var timestamp = new DateTime(info.TimestampTicks, DateTimeKind.Utc);
 
         // Format: [HH:mm:ss.fff LVL Category|Path #Tag] or [yyyy-MM-dd HH:mm:ss.fff LVL Category|Path #Tag]
-        var span = output.GetSpan(512);
+        // Compute required size: fixed prefix + category + path + tag
+        var catBytes = _categoryUtf8Cache.GetOrAdd(info.Category ?? "", static c => Encoding.UTF8.GetBytes(c));
+        int needed = 32 // [yyyy-MM-dd HH:mm:ss.fff LVL ] + brackets + space margin
+            + catBytes.Length
+            + (info.Utf8Path.Length > 0 ? 1 + info.Utf8Path.Length : 0) // |path
+            + (info.Tag is not null ? 2 + Encoding.UTF8.GetByteCount(info.Tag) : 0) // _#tag
+            + 2; // ] and trailing space
+        var span = output.GetSpan(needed);
         int pos = 0;
 
         span[pos++] = (byte)'[';
@@ -53,7 +60,6 @@ public sealed class DefaultLogFormatter : ILogFormatter
         span[pos++] = (byte)' ';
 
         // Category
-        var catBytes = _categoryUtf8Cache.GetOrAdd(info.Category, static c => Encoding.UTF8.GetBytes(c));
         catBytes.CopyTo(span[pos..]);
         pos += catBytes.Length;
 

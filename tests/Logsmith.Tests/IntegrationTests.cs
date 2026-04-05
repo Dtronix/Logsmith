@@ -293,6 +293,79 @@ public class IntegrationTests
         Assert.That(sink.Entries, Has.Count.EqualTo(1));
         Assert.That(sink.Entries[0].Path, Does.Contain("Operation"));
     }
+
+    [Test]
+    public void ILogger_Sampled_DropsMessages()
+    {
+        var sink = new RecordingSink();
+        LogManager.Initialize(c =>
+        {
+            c.MinimumLevel = LogLevel.Debug;
+            c.AddSink(sink);
+        });
+
+        ILogger logger = LogManager.GetLogger("Test");
+        // Log 100 messages with Sampled(10) — expect ~10 to get through
+        for (int i = 0; i < 100; i++)
+            logger.Sampled(10).Debug($"Sampled {i}");
+
+        // With Sampled(10), every 10th message passes (counter % rate == 0)
+        Assert.That(sink.Entries.Count, Is.InRange(9, 11));
+    }
+
+    [Test]
+    public void ILogger_RateLimited_CapsPerSecond()
+    {
+        var sink = new RecordingSink();
+        LogManager.Initialize(c =>
+        {
+            c.MinimumLevel = LogLevel.Debug;
+            c.AddSink(sink);
+        });
+
+        ILogger logger = LogManager.GetLogger("Test");
+        // Log 50 messages with RateLimited(5) — expect at most ~5 per second
+        for (int i = 0; i < 50; i++)
+            logger.RateLimited(5).Debug($"Limited {i}");
+
+        Assert.That(sink.Entries.Count, Is.LessThanOrEqualTo(6));
+    }
+
+    [Test]
+    public void Dispatch_ContinuesAfterSinkThrows()
+    {
+        var goodSink = new RecordingSink();
+        var throwingSink = new ThrowingSink();
+
+        Exception? capturedError = null;
+        LogManager.Initialize(c =>
+        {
+            c.MinimumLevel = LogLevel.Debug;
+            c.AddSink(throwingSink);
+            c.AddSink(goodSink);
+            c.InternalErrorHandler = ex => capturedError = ex;
+        });
+
+        ILogger logger = LogManager.GetLogger("Test");
+        logger.Debug($"Should reach second sink {1}");
+
+        // First sink threw, but second sink should still receive the message
+        Assert.That(goodSink.Entries, Has.Count.EqualTo(1));
+        Assert.That(goodSink.Entries[0].Message, Does.Contain("Should reach second sink"));
+        // Error handler should have been called
+        Assert.That(capturedError, Is.Not.Null);
+        Assert.That(capturedError, Is.TypeOf<InvalidOperationException>());
+    }
+}
+
+/// <summary>
+/// Sink that always throws, used to test error handling in dispatch.
+/// </summary>
+internal class ThrowingSink : ILogSink
+{
+    public bool IsEnabled(LogLevel level) => true;
+    public void Write(in DispatchInfo info) => throw new InvalidOperationException("Sink failure");
+    public void Dispose() { }
 }
 
 /// <summary>

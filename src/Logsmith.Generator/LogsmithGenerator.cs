@@ -164,6 +164,24 @@ public sealed class LogsmithGenerator : IIncrementalGenerator
                 ctx.AddSource("LogInterceptors.g.cs",
                     SourceText.From(source, System.Text.Encoding.UTF8));
             });
+
+        // LSMITH013: Detect broken chains (chain method result stored in a variable)
+        var brokenChainProvider = context.SyntaxProvider.CreateSyntaxProvider(
+            predicate: static (node, _) => ChainAnalyzer.IsChainBreakCandidate(node),
+            transform: static (ctx, ct) => ChainAnalyzer.DetectBrokenChain(ctx, ct))
+            .Where(static result => result is not null);
+
+        context.RegisterSourceOutput(brokenChainProvider, static (ctx, result) =>
+        {
+            if (result is not null)
+            {
+                var (location, methodName) = result.Value;
+                ctx.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.LSMITH013,
+                    location,
+                    methodName));
+            }
+        });
     }
 
     /// <summary>

@@ -31,6 +31,54 @@ internal static class ChainAnalyzer
     };
 
     /// <summary>
+    /// Quick syntactic check: is this an InvocationExpression calling a chain method
+    /// (When, Sampled, RateLimited, Tagged) that might be stored in a variable?
+    /// </summary>
+    internal static bool IsChainBreakCandidate(SyntaxNode node)
+    {
+        if (node is not InvocationExpressionSyntax inv)
+            return false;
+
+        if (inv.Expression is not MemberAccessExpressionSyntax member)
+            return false;
+
+        string name = member.Name.Identifier.Text;
+        for (int i = 0; i < ChainMethods.Length; i++)
+        {
+            if (ChainMethods[i] == name)
+            {
+                // Check if the result is NOT used fluently (i.e., parent is not a MemberAccess)
+                var parent = inv.Parent;
+                if (parent is MemberAccessExpressionSyntax)
+                    return false; // Part of a fluent chain — fine
+
+                return true; // Stored in variable, passed as argument, etc.
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Semantic check: confirms the broken chain call is actually on ILogger and returns
+    /// the diagnostic location + method name. Returns null if not an ILogger method.
+    /// </summary>
+    internal static (Location Location, string MethodName)? DetectBrokenChain(
+        GeneratorSyntaxContext ctx, CancellationToken ct)
+    {
+        var inv = (InvocationExpressionSyntax)ctx.Node;
+        var member = (MemberAccessExpressionSyntax)inv.Expression;
+        string methodName = member.Name.Identifier.Text;
+
+        var symbolInfo = ctx.SemanticModel.GetSymbolInfo(inv, ct);
+        var methodSymbol = symbolInfo.Symbol as IMethodSymbol;
+        if (methodSymbol == null || !IsILoggerMethod(methodSymbol))
+            return null;
+
+        return (inv.GetLocation(), methodName);
+    }
+
+    /// <summary>
     /// Quick syntactic check: is this an InvocationExpression calling a terminal method
     /// on what could be an ILogger?
     /// </summary>
