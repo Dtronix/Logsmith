@@ -189,7 +189,7 @@ builder.Logging.AddLogsmith(); // routes ILogger calls through Logsmith sinks
 ### Standalone mode
 
 ```xml
-<PackageReference Include="Logsmith.Generator" Version="0.5.0" />
+<PackageReference Include="Logsmith.Generator" Version="0.6.0" />
 ```
 
 All runtime types are embedded as `internal` automatically. `Logsmith.Generator` is a meta-package that defaults `LogsmithMode=Standalone`.
@@ -201,7 +201,7 @@ All runtime types are embedded as `internal` automatically. `Logsmith.Generator`
     <LogsmithMode>Abstraction</LogsmithMode>
     <LogsmithNamespace>MyLib.Logging</LogsmithNamespace> <!-- optional, defaults to {RootNamespace}.Logging -->
 </PropertyGroup>
-<PackageReference Include="Logsmith" Version="0.5.0" PrivateAssets="all" />
+<PackageReference Include="Logsmith" Version="0.6.0" PrivateAssets="all" />
 ```
 
 Consumer wires logger at startup:

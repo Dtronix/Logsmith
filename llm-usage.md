@@ -125,7 +125,7 @@ Async-local linked-list stack. `EnumerateProperties()` returns `ScopeEnumerator`
     <LogsmithMode>Abstraction</LogsmithMode>
     <LogsmithNamespace>MyLib.Logging</LogsmithNamespace> <!-- optional, defaults to {RootNamespace}.Logging -->
 </PropertyGroup>
-<PackageReference Include="Logsmith" Version="0.5.0" PrivateAssets="all" />
+<PackageReference Include="Logsmith" Version="0.6.0" PrivateAssets="all" />
 ```
 
 Generates public types in configured namespace: `ILogsmithLogger`, `IStructuredLogsmithLogger`, `LogsmithOutput`, `LogLevel`, `LogEntry`, `LogScope`, `WriteProperties<TState>`. All infrastructure is internal.
